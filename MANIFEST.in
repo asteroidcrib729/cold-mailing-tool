@@ -1,0 +1,16 @@
+include README.md pyproject.toml uv.lock .python-version .env.example
+recursive-include src/cold_mailer *.py *.svg
+recursive-include tests *.py
+recursive-include scripts *.py *.ps1
+recursive-include examples *.csv
+recursive-include development-plans *.md
+prune .git
+prune .venv
+prune .uv-cache
+prune .pre-commit-cache
+prune reports
+prune build
+prune dist
+global-exclude *.pyc *.db *.sqlite *.sqlite3 *.key
+exclude .env
+exclude Load Contacts.csv

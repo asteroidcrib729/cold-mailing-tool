@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cold-mailing-tool"
+version = "0.1.0"
+description = "A local desktop campaign editor with explicit approval and durable send outcomes"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+  "pyside6-essentials>=6.10,<7",
+  "google-genai>=1.50,<3",
+  "jinja2>=3.1.6,<4",
+  "openpyxl>=3.1.5,<4",
+  "dnspython>=2.8,<3",
+  "keyring>=25.6,<27",
+  "platformdirs>=4.5,<5",
+  "python-dotenv>=1.2,<2",
+  "cryptography>=50,<51",
+  "filelock>=3.20,<5",
+  "tzdata>=2025.2",
+]
+
+[project.scripts]
+cold-mailer = "cold_mailer.cli:main"
+
+[project.gui-scripts]
+cold-mailer-desktop = "cold_mailer.ui.window:main"
+
+[dependency-groups]
+dev = ["ruff>=0.14,<1", "pyrefly>=0.40,<1", "pre-commit>=4,<5", "types-openpyxl>=3.1"]
+test = ["pytest>=8.4,<10", "pytest-cov>=6,<8", "pytest-socket>=0.7,<1", "pytest-timeout>=2.4,<3"]
+ui-test = ["pytest-qt>=4.5,<5"]
+security = ["pip-audit>=2.9,<3", "bandit>=1.8,<2"]
+build = ["pyinstaller>=6.16,<7"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["cold_mailer", "cold_mailer.*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+"cold_mailer.ui" = ["assets/*.svg"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.format]
+line-ending = "lf"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pyrefly]
+search-path = ["src", "."]
+project-includes = ["src/**/*.py", "tests/**/*.py", "scripts/**/*.py"]
+project-excludes = [".venv/**", ".uv-cache/**", "build/**", "dist/**"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-config --strict-markers --disable-socket"
+qt_api = "pyside6"
+timeout = 30
+filterwarnings = [
+  "error",
+  # google-genai 2.31 uses this Python 3.14 typing alias. Remove when upstream fixes it.
+  "ignore:'_UnionGenericAlias' is deprecated and slated for removal in Python 3.17:DeprecationWarning",
+]
+markers = ["unit: pure unit behavior", "integration: real isolated adapters", "ui: real Qt widgets", "e2e: complete offline journey", "live: explicitly authorized provider tests", "packaged: built artifact tests", "slow: extended benchmarks"]
+
+[tool.coverage.run]
+branch = true
+source = ["cold_mailer"]
+omit = ["tests/*", "scripts/*", ".venv/*", ".uv-cache/*", "build/*", "dist/*"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = ["if __name__ == .__main__.:", "if TYPE_CHECKING:"]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", ".uv-cache", ".pre-commit-cache", "reports", "build", "dist"]

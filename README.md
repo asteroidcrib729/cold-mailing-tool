@@ -1,0 +1,205 @@
+# Cold Mailer
+
+I am rebuilding this project as a local Windows desktop campaign workbench using
+Python 3.14, PySide6 Widgets, SQLite, OS credential storage, and `uv`. Application
+code lives in the installable `src/cold_mailer/` package. My
+[Plan 01](development-plans/development-plan-01.md) is complete as the foundation
+phase. My active [Plan 02](development-plans/development-plan-02.md) contains new
+feature requirements and all transferred unfinished work. The
+[execution record](development-plans/execution-01.md) preserves verified baseline
+evidence, and [feature proposals](development-plans/features-and-improvements.md)
+remain separate from approved implementation scope.
+
+## Repository structure
+
+```text
+src/cold_mailer/
+    domain/          # Entities, validation, outcomes, and provider interfaces
+    application/     # Shared campaign orchestration
+    infrastructure/  # SQLite, credentials, AI, SMTP, contacts, templates, DNS, legacy import
+    ui/              # PySide6 window, table models, and workers
+    cli.py           # CLI commands
+    bootstrap.py     # Profile ownership and dependency wiring
+    settings.py      # Explicit configuration
+tests/               # Offline unit, integration, TLS, and Qt tests
+scripts/             # Development, security, verification, and build tools
+development-plans/   # Plan and execution evidence
+examples/            # Synthetic sample data
+```
+
+I install the package with `uv sync` before running it. Both command entry points,
+the debugger, tests, and Windows build use the same package. No application Python
+scripts live at the repository root, and the repository verifier enforces that rule.
+Module launchers are also available as `python -m cold_mailer` (CLI) and
+`python -m cold_mailer.ui` (desktop), using the installed project environment.
+
+## Current capabilities
+
+I can create and reopen campaigns, import CSV/XLSX contacts with row diagnostics,
+write manual drafts or generate them using an explicitly selected Gemini model,
+review the exact final message, and approve each revision. Editing content or a
+sender invalidates pending approvals. Accepted and uncertain messages are immutable.
+
+The shared GUI/CLI engine journals attempts before transmission, enforces sender
+pacing and rolling daily limits, checks suppression, supports cancellation, and
+recovers interrupted attempts as uncertain. A repeated run does not replay accepted
+or uncertain messages. Three attempts per message are permitted; retryable messages
+are eligible only after the retry delay and an explicit later run. There is no
+unattended retry scheduler or background auto-send.
+
+This is an early development build. Hosted CI, real-provider seed tests, signing,
+clean-machine upgrades, complete schema migrations, and production acceptance are
+still open. Historical secrets require rotation and a coordinated history rewrite.
+
+## Development setup
+
+I use Windows x64 with Python **3.14.7** and **uv 0.12.9**. The runtime and development
+dependencies are declared in `pyproject.toml` and resolved in `uv.lock`; I retired
+the old hand-maintained `requirements.txt`.
+
+```powershell
+uv --cache-dir .uv-cache sync --locked --all-groups
+uv --cache-dir .uv-cache run --locked cold-mailer-desktop
+```
+
+The desktop opens without credentials or network access. It uses a per-user
+`ColdMailer` application-data profile, not the repository's old `config.db`.
+For a separate profile:
+
+```powershell
+uv --cache-dir .uv-cache run --locked cold-mailer-desktop --data-dir C:\Temp\ColdMailer-Demo
+```
+
+## Desktop workflow
+
+I can choose **System**, **Light**, or **Dark** from the header's **Theme** selector
+or **Settings > Appearance**. Changes apply immediately and persist in the current
+profile. System follows the operating system's appearance. Theme changes preserve
+unsaved drafts and never enable network access.
+
+The campaign workspace uses resizable recipient/editor panels. Smaller windows
+scroll instead of shrinking fields or hiding button text. **Brief and activity**
+opens the AI brief, message template, and activity log; the log also opens when an
+operation starts. Sender accounts and Settings use separate, scrollable cards.
+
+1. In **Sender accounts**, add an SMTP account. Select `starttls` for an explicit
+   STARTTLS connection or `tls` for implicit TLS, commonly port 465. Passwords go
+   to the OS keyring; SQLite stores only account configuration.
+2. In **Campaigns**, create a campaign and import CSV/XLSX contacts. The
+   [example CSV](examples/contacts.example.csv) contains synthetic data and reserved
+   example addresses; it is not a live recipient list. Legacy `.xls` is unsupported.
+   Choose one sender or explicitly rotate new contacts across all sender accounts.
+   The sender assignment is stored before review; rotation respects each account's
+   pacing and daily limits rather than bypassing them.
+3. Open **Brief and activity**, enter the brief/template, and save the campaign. In **Settings**,
+   configure an explicit Gemini model and save its API key to OS storage.
+4. Enable **Live access** only when requesting real provider calls. **Generate
+   drafts** generates subject/body and renders the wrapper before review. It does
+   not overwrite existing edits or approve content. Manual drafting works offline.
+5. Select a message, edit the subject and final body, **Save draft**, then select
+   it again and **Approve revision**. Unsaved edits cannot be approved.
+6. **Dry run** reports local message-state counts without AI or SMTP. It does not
+   prove credentials, deliverability, or future quota availability. The send path
+   rechecks approvals, suppression, attempt budgets, and pacing.
+7. **Send approved** requires live access and a visible confirmation.
+   **Stop operation** requests cooperative stop; in-flight I/O has a 30-second
+   timeout. The UI remains available for stop/close while worker operations finish.
+8. Inspect message states after the operation. SMTP acceptance is not confirmed
+   delivery. An uncertain result requires checking provider evidence and explicitly
+   reconciling accepted versus not sent; it is never automatically retried.
+
+Settings also supports suppression, bounded SPF/DMARC presence diagnostics, and
+database backups. DNS presence is not a validity or deliverability guarantee.
+Detailed UI operation logs are bounded and session-only; attempt outcomes persist.
+
+## Command line
+
+```powershell
+uv --cache-dir .uv-cache run --locked cold-mailer --help
+uv --cache-dir .uv-cache run --locked cold-mailer --data-dir C:\Temp\ColdMailer-Demo diagnostics
+uv --cache-dir .uv-cache run --locked cold-mailer --data-dir C:\Temp\ColdMailer-Demo create "Example campaign"
+```
+
+The CLI exposes `campaigns`, `senders`, `add-sender`, `import`, `messages`, `edit`,
+`approve`, `dry-run`, `generate`, `run`, `reconcile`, `suppress`, `backup`, and
+`restore`. Use each subcommand's `--help` for arguments. SMTP password entry uses
+a hidden prompt. Network operations require the global `--live` option before
+the subcommand; default operation is offline.
+
+Exit codes currently implemented: `0` success, `1` file/storage failure, `2`
+validation/configuration error, `3` definitive or retryable send/generation failures,
+`5` uncertain transmission, and `130` Ctrl+C. There is no CLI background stop command
+yet. A dry run is a local inspection, not authorization to send.
+
+I read a root `.env` only with an explicit `--development` option. The canonical
+development variables are `GOOGLE_GENAI_API_KEY` and `GENAI_MODEL`; `API_KEY` is a
+development-only legacy alias. No model is selected or changed silently. GUI and
+CLI also share the saved model preference and the OS-stored API key.
+
+## Backups and legacy files
+
+The root `.env`, contact CSV, old `config.db`, and `secret.key` remain local and
+ignored. The replacement application does not open or migrate them automatically.
+**Import legacy accounts** explicitly reads a chosen database/key pair without
+changing either file, then stores imported credentials in the current OS profile.
+Exposed historical credentials still need rotation.
+
+Backups exclude passwords. `restore SOURCE DESTINATION` creates a new SQLite file;
+it never overwrites an existing profile. Restored pending messages are held as
+uncertain because a backup may predate later sends. Reconcile those outcomes and
+re-enter credentials as needed before resuming in the restored profile.
+
+## Verification
+
+```powershell
+.\scripts\verify.ps1 -Mode Fast
+uv --cache-dir .uv-cache run --locked python scripts/install_tools.py
+.\scripts\verify.ps1 -Mode Full
+.\scripts\verify.ps1 -Mode Security
+```
+
+Fast runs lint, formatting, types, repository/document checks, and unit tests.
+Full also runs the complete offline suite and enforces 90% overall coverage and
+95% for the critical engine/storage/transport/domain modules. Tests isolate data
+and credentials. The TLS fixture opens only a loopback SMTP server; ordinary tests
+deny sockets. No normal verifier sends real email or calls Gemini.
+
+The installer downloads pinned, SHA-256-verified Gitleaks/actionlint binaries into
+ignored `reports/tools`. Security additionally audits the locked dependencies,
+runs Bandit, and scans reachable Git history. The history gate currently reports
+known exposures; I have not hidden them with allowlists. CodeQL and the hosted
+workflows require subsequent GitHub execution and appropriate repository features.
+
+I can regenerate synthetic light/dark previews of every page without opening a
+live profile or contacting providers:
+
+```powershell
+uv --cache-dir .uv-cache run --locked python scripts/preview_ui.py --width 1000 --height 650
+```
+
+Snapshots and size/scale results are written to ignored `reports/ui-preview/`.
+
+To install the local commit hooks after setting up the project and scanners:
+
+```powershell
+uv --cache-dir .uv-cache run --locked pre-commit install
+```
+
+## Build status
+
+```powershell
+uv --cache-dir .uv-cache build
+uv --cache-dir .uv-cache run --locked python scripts/check_artifacts.py
+```
+
+The wheel includes only the `cold_mailer` package from `src/`; source archives exclude credentials,
+databases, local reports, and caches. Windows directory builds use the pinned
+PyInstaller dependency. Unsigned development artifacts are not production releases;
+signing, installed-app acceptance, upgrade/rollback, licensing review, and hosted
+artifact verification remain gates in the plan.
+
+Build an unsigned directory preview with `scripts/build_desktop.ps1`. The executable
+is `dist/desktop/ColdMailer/ColdMailer.exe`; keep its `_internal` folder beside it.
+`dist/desktop/development-manifest.json` records source hashes and clearly marks
+the uncommitted/unsigned state. A hidden native Windows startup check can use
+`--smoke-test --data-dir SOME-ISOLATED-PROFILE`; this never enables providers.

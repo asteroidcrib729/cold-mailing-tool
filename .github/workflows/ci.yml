@@ -1,0 +1,48 @@
+name: Development checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  quality:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      UV_CACHE_DIR: .uv-cache
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          version: '0.12.9'
+      - run: uv sync --locked --all-groups
+      - run: ./scripts/verify.ps1 -Mode Fast
+      - run: uv run --locked --group test --group ui-test pytest -q --cov --cov-report=json:reports/coverage.json --cov-report=xml:reports/coverage.xml --junitxml=reports/junit.xml
+      - run: uv run --locked python scripts/check_coverage.py
+      - run: uv build
+      - run: uv run --locked python scripts/check_artifacts.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: synthetic-check-results
+          path: |
+            reports/junit.xml
+            reports/coverage.xml
+          retention-days: 7
+  required-checks:
+    if: always()
+    needs: [quality]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULT: ${{ needs.quality.result }}
+        run: test "$RESULT" = success
