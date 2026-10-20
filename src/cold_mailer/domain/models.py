@@ -14,6 +14,40 @@ class ValidationError(ValueError):
     """An actionable input or state error, safe for the user interface."""
 
 
+class GenerationFailure(ValidationError):
+    """Fixed provider-status diagnostics that never embed response text or credentials."""
+
+    def __init__(self, status_code: int | None = None) -> None:
+        self.status_code = (
+            status_code if type(status_code) is int and 100 <= status_code <= 599 else None
+        )
+        code = self.status_code
+        if code in {401, 403}:
+            detail = "Check the API key, project permissions and API restrictions."
+        elif code == 402:
+            detail = "Check the project's billing status and available credits."
+        elif code == 404:
+            detail = "The selected model is unavailable to this project. Check its exact model ID."
+        elif code == 429:
+            detail = "The provider request/quota limit was reached. Check quota or billing before retrying."
+        elif code in {408, 504}:
+            detail = "The provider request timed out. Retry explicitly later."
+        elif code is not None and 500 <= code <= 599:
+            detail = "The provider is temporarily unavailable. Retry explicitly later."
+        elif code == 400:
+            detail = (
+                "The provider rejected the request. Check model capabilities and configuration."
+            )
+        else:
+            detail = "Check the model, credentials, quota or connectivity."
+        prefix = (
+            f"AI generation failed (HTTP {code}). "
+            if code is not None
+            else "AI generation failed. "
+        )
+        super().__init__(prefix + detail + " No generated content was approved.")
+
+
 class Status(StrEnum):
     DRAFT = "draft"
     APPROVED = "approved"

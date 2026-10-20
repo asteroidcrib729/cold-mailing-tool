@@ -11,6 +11,7 @@ from threading import Event
 from filelock import FileLock, Timeout
 
 from cold_mailer.domain.models import (
+    GenerationFailure,
     Message,
     Outcome,
     RunSummary,
@@ -160,9 +161,13 @@ class CampaignService:
                     raise
                 summary.generated += 1
                 emit("Draft generated; review and approve before sending.")
-            except ValidationError:
+            except ValidationError as exc:
                 summary.failed += 1
-                emit("Generation failed for a draft; it remains unapproved.")
+                emit(
+                    str(exc)
+                    if isinstance(exc, GenerationFailure)
+                    else "Generation failed for a draft; it remains unapproved."
+                )
         return summary
 
     def _parallel_generate(
@@ -184,7 +189,7 @@ class CampaignService:
         eligible = eligible[:available]
         run_id = identifier()
 
-        def produce(message: Message) -> tuple[Message, str, str, str] | None:
+        def produce(message: Message) -> tuple[Message, str, str, str] | GenerationFailure | None:
             if stop.is_set():
                 return None
             try:
@@ -202,6 +207,8 @@ class CampaignService:
                     body,
                     request_id,
                 )
+            except GenerationFailure as exc:
+                return exc
             except ValidationError:
                 return None
 
@@ -214,6 +221,10 @@ class CampaignService:
                 if result is None:
                     summary.failed += 1
                     emit("Generation failed for a draft; it remains unapproved.")
+                    continue
+                if isinstance(result, GenerationFailure):
+                    summary.failed += 1
+                    emit(str(result))
                     continue
                 message, subject, body, request_id = result
                 try:
