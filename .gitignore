@@ -1,1 +1,43 @@
-.venv
+# Python environments, caches, and generated packages
+.venv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyrefly/
+.pre-commit-cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.egg-info/
+build/
+dist/
+
+# Local secrets and application state
+.env
+.env.*
+!.env.example
+secret.key
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.log
+/data/
+/logs/
+/reports/
+/Load Contacts.csv
+
+# Superseded distributions and operating-system clutter
+/!APP_VERSIONS/
+/b2b_cold_email_tool_v2/
+/b2b_cold_email_tool_v3/
+*.zip
+Thumbs.db
+.DS_Store
