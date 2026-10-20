@@ -69,7 +69,7 @@ class HistoryPage(QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(
             QLabel(
-                "SMTP acceptance is separate from delivery. Display times use your chosen timezone; CSV timestamps remain UTC."
+                "Provider acceptance is separate from delivery. Display times use your chosen timezone; CSV timestamps remain UTC."
             )
         )
         bar = QHBoxLayout()

@@ -108,7 +108,7 @@ def test_transport_exception_is_uncertain_and_stops_batch(rig: Rig) -> None:
         def preflight(self) -> None:
             return None
 
-        def send(self, sender: Sender, password: str, message: Message) -> SendResult:
+        def send(self, sender: Sender, credential: str, message: Message) -> SendResult:
             raise RuntimeError("unexpected transport issue")
 
     service = CampaignService(rig.store, rig.credentials, Broken())

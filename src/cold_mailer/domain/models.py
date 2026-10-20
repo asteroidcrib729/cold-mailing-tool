@@ -122,9 +122,27 @@ class Sender:
     tls: str = "starttls"
     daily_limit: int = 50
     interval: float = 30
+    provider: str = ""
+    subject: str = ""
 
     def validate(self) -> None:
         address(self.email)
+        if self.provider:
+            if (
+                self.provider not in {"google", "microsoft"}
+                or not self.subject
+                or len(self.subject) > 255
+            ):
+                raise ValidationError(
+                    "Connect a personal Google or Microsoft account by signing in."
+                )
+            if self.username != self.email:
+                raise ValidationError("Sender identity must match the signed-in account.")
+            if self.provider == "google" and self.email.rsplit("@", 1)[1] not in {
+                "gmail.com",
+                "googlemail.com",
+            }:
+                raise ValidationError("Only personal Gmail accounts are supported.")
         header(self.username, "Username")
         if not re.fullmatch(r"[A-Za-z0-9.-]+", self.host) or not 1 <= self.port <= 65535:
             raise ValidationError("Enter a valid SMTP hostname and port (1-65535).")
@@ -157,6 +175,7 @@ class Message:
 class SendResult:
     outcome: Outcome
     code: str
+    retry_after: float = 0
 
 
 @dataclass

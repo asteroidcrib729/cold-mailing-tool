@@ -6,7 +6,7 @@ import pytest
 from cold_mailer import cli as main_headless
 from cold_mailer.bootstrap import Application
 from cold_mailer.cli import execute, main, parser
-from cold_mailer.domain.models import Status, ValidationError
+from cold_mailer.domain.models import Sender, Status, ValidationError
 from cold_mailer.infrastructure.storage import Store
 from cold_mailer.settings import Settings
 from tests.conftest import Rig
@@ -25,17 +25,23 @@ def test_cli_shared_services_complete_workflow(
             return execute(parser().parse_args(list(arguments)), app)
 
         assert command("campaigns")[1] == command("senders")[1] == 0
-        monkeypatch.setattr(main_headless, "getpass", lambda _: "synthetic-password")
-        added, code = command(
-            "add-sender",
-            "--email",
-            "other@example.com",
-            "--host",
-            "smtp.example.com",
-            "--username",
+        connected = Sender(
             "other",
+            "other@gmail.com",
+            "gmail.googleapis.com",
+            443,
+            "other@gmail.com",
+            "tls",
+            provider="google",
+            subject="person",
         )
+        connect_mock = MagicMock(return_value=connected)
+        monkeypatch.setattr(app.accounts, "connect", connect_mock)
+        added, code = command("--live", "connect-account", "google")
         assert code == 0 and added
+        connect_mock.assert_called_once()
+        monkeypatch.setattr(app.accounts, "disconnect", MagicMock())
+        assert command("disconnect-account", connected.id)[1] == 0
         contacts = tmp_path / "cli.csv"
         contacts.write_text("email,first_name\na@example.com,Alex\nb@example.com,Bee\n")
         imported, _ = command("import", rig.campaign, rig.sender.id, str(contacts))

@@ -287,16 +287,18 @@ class CampaignService:
                 summary.skipped += 1
                 continue
             sender = self.store.sender(message.sender_id)
-            password = self.credentials.get(sender.id)
-            if not password:
-                raise ValidationError(
-                    "Sender credentials are missing. Re-enter them in sender settings."
-                )
             floor = float(getattr(self.transport, "minimum_interval", 0))
             delay = self.store.wait_seconds(sender.id, self.clock(), minimum_interval=floor)
             if delay and stop.wait(delay):
                 summary.cancelled = True
                 break
+            sender = self.store.sender(message.sender_id)
+            prepare = getattr(self.transport, "prepare", None)
+            credential = prepare(sender) if callable(prepare) else self.credentials.get(sender.id)
+            if not isinstance(credential, str) or not credential:
+                raise ValidationError(
+                    "Sender authorization is missing. Sign in under Sender accounts."
+                )
             attempt_id = self.store.claim(
                 message.id, self.clock(), minimum_interval=floor, run_id=run_id
             )
@@ -308,7 +310,7 @@ class CampaignService:
                 continue
             try:
                 result = self.transport.send(
-                    self.store.sender(message.sender_id), password, self.store.message(message.id)
+                    self.store.sender(message.sender_id), credential, self.store.message(message.id)
                 )
             except Exception:
                 self.store.finish(
@@ -328,7 +330,7 @@ class CampaignService:
                 result.outcome,
                 result.code,
                 self.clock(),
-                minimum_interval=floor,
+                minimum_interval=max(floor, result.retry_after),
             )
             if result.outcome == Outcome.ACCEPTED:
                 summary.accepted += 1
@@ -339,7 +341,10 @@ class CampaignService:
             else:
                 summary.failed += 1
             emit(f"Message outcome: {result.outcome} ({result.code}).")
-            if result.outcome == Outcome.UNCERTAIN or result.code == "authentication_failed":
+            if result.outcome == Outcome.UNCERTAIN or result.code in {
+                "authentication_failed",
+                "provider_rate_limited",
+            }:
                 break
             if stop.is_set():
                 summary.cancelled = True
