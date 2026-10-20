@@ -2,6 +2,10 @@
 
 Date: 2026-10-20 (Asia/Karachi).
 
+Historical record: [Live Testing 02](live-testing-02.md) supersedes the blocked
+generation status below after four successful Gemini 3.1 Flash-Lite requests.
+The original observations and incomplete assertions from this run remain unchanged.
+
 Status: model metadata checks passed; all four generation requests failed with
 HTTP 503/504. Successful live generation, editing of a real generated draft,
 SMTP seed transmission, recipient receipt, and packaged-app live acceptance

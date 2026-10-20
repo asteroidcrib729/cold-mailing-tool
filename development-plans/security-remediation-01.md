@@ -115,8 +115,8 @@ source metadata and must be rebuilt before release acceptance.
 Status: approved remote rewrite and local cleanup completed; reachable-history
 scans pass. GitHub's old cached commit URL remains accessible and needs external
 support follow-up. The owner has confirmed submitting the support ticket.
-Application [live testing has started](live-testing-01.md); successful AI generation
-and SMTP seed acceptance remain open.
+Application [live testing](live-testing-02.md) now includes successful AI generation
+and bounded source desktop checks. SMTP seed acceptance remains open.
 
 ## Approval review result
 

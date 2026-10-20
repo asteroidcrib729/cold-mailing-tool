@@ -14,6 +14,11 @@ and [Live Testing 01](live-testing-01.md) for newer evidence. Verification figur
 below describe this implementation checkpoint; they do not claim current live
 generation or installer acceptance.
 
+[Live Testing 02](live-testing-02.md) now records four successful real AI requests
+with Gemini 3.1 Flash-Lite and source desktop editing/autosave/restart checks.
+This closes that bounded source journey, not SMTP, model-wide capacity, sustained
+quota handling, semantic quality, or installer acceptance.
+
 ## Delivered behavior
 
 | Area / requirements | Implementation | Practical boundary |

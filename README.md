@@ -89,10 +89,12 @@ remain open. Credentials are owner-confirmed revoked/rotated and reachable Git
 history has been sanitized. The [remediation record](development-plans/security-remediation-01.md)
 tracks verification and the remaining GitHub cache/support follow-up.
 The owner has submitted the GitHub Support ticket. My
-[live-testing record](development-plans/live-testing-01.md) documents successful
-model metadata checks and four generation failures with HTTP 503/504, including
-one approved stable-model trial. Successful generation and SMTP seed verification
-remain open; no live email was sent.
+[first live-testing record](development-plans/live-testing-01.md) documents the initial
+HTTP 503/504 failures. [Live Testing 02](development-plans/live-testing-02.md) confirms
+four successful `models/gemini-3.1-flash-lite` requests, including desktop editing,
+autosave, candidate rejection, and restart checks. That is the tested recommendation
+for the current project's screenshot limits. Bulk AI quota governance and SMTP seed
+verification remain open; no live email was sent.
 
 ## Development setup
 

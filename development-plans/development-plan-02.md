@@ -20,7 +20,11 @@ The older phase restrictions above describe the implementation baseline.
 The owner subsequently authorized bounded live AI testing. The
 [Live Testing 01 record](live-testing-01.md) records successful model metadata
 checks and failed generation attempts, including the explicitly approved stable
-model trial. Live-generation acceptance and SMTP seed verification remain open.
+model trial. [Live Testing 02](live-testing-02.md) subsequently confirms four working
+Gemini 3.1 Flash-Lite requests and the bounded source desktop journey. Bulk model-aware
+RPM/TPM/daily quota admission, broader semantic evaluation, SMTP seed verification,
+and packaged live acceptance remain open; request-count budgets alone do not close
+the provider quota requirement.
 
 Plan 01 is complete as a closed foundation phase. Its unfinished obligations are
 transferred here without being marked implemented. See the
