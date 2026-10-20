@@ -8,6 +8,12 @@ historical. The owner authorized further autonomous local implementation; commit
 pushes, live messages, credential rotation, and destructive history rewriting
 remain outside this iteration.
 
+Subsequent owner instructions authorized iterative commits/pushes, historical
+remediation, and bounded live AI tests. See the [remediation record](security-remediation-01.md)
+and [Live Testing 01](live-testing-01.md) for newer evidence. Verification figures
+below describe this implementation checkpoint; they do not claim current live
+generation or installer acceptance.
+
 ## Delivered behavior
 
 | Area / requirements | Implementation | Practical boundary |

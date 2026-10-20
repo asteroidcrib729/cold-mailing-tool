@@ -88,6 +88,11 @@ clean-machine upgrades, remaining schema/fault acceptance, and production accept
 remain open. Credentials are owner-confirmed revoked/rotated and reachable Git
 history has been sanitized. The [remediation record](development-plans/security-remediation-01.md)
 tracks verification and the remaining GitHub cache/support follow-up.
+The owner has submitted the GitHub Support ticket. My
+[live-testing record](development-plans/live-testing-01.md) documents successful
+model metadata checks and four generation failures with HTTP 503/504, including
+one approved stable-model trial. Successful generation and SMTP seed verification
+remain open; no live email was sent.
 
 ## Development setup
 
@@ -221,6 +226,16 @@ I read a root `.env` only with an explicit `--development` option. The canonical
 development variables are `GOOGLE_GENAI_API_KEY` and `GENAI_MODEL`; `API_KEY` is a
 development-only legacy alias. No model is selected or changed silently. GUI and
 CLI also share the saved model preference and the OS-stored API key.
+
+To load the ignored root `.env` for desktop development:
+
+```powershell
+uv --cache-dir .uv-cache run --locked cold-mailer-desktop --development
+```
+
+Live access still requires explicitly enabling it in the desktop. Provider failures
+now include safe HTTP status hints in the operation log without exposing raw
+provider responses or automatically retrying requests.
 
 ## Backups and legacy files
 

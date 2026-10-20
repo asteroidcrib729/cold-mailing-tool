@@ -17,6 +17,11 @@ and remaining GitHub cache/support follow-up
 are tracked in [Historical Secret Remediation 01](security-remediation-01.md).
 The older phase restrictions above describe the implementation baseline.
 
+The owner subsequently authorized bounded live AI testing. The
+[Live Testing 01 record](live-testing-01.md) records successful model metadata
+checks and failed generation attempts, including the explicitly approved stable
+model trial. Live-generation acceptance and SMTP seed verification remain open.
+
 Plan 01 is complete as a closed foundation phase. Its unfinished obligations are
 transferred here without being marked implemented. See the
 [closed Plan 01](development-plan-01.md), the historical

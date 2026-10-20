@@ -1,10 +1,12 @@
-# GitHub Support Request Draft: Residual Cached Sensitive History
+# GitHub Support Request: Residual Cached Sensitive History
 
 Date: 2026-10-20 (Asia/Karachi).
 
-Draft only. The agent has not submitted a support request or contacted other people.
-The repository owner can submit this through [GitHub Support](https://support.github.com/).
-GitHub may determine that credential revocation sufficiently mitigates the risk.
+The owner confirmed submission through [GitHub Support](https://support.github.com/)
+on 2026-10-20. Submission is owner-reported; no support response or completed
+server-side purge has been verified. The agent did not submit the request or
+contact other people. GitHub may determine that credential revocation sufficiently
+mitigates the risk. The prepared request text is retained below.
 
 ## Suggested request
 

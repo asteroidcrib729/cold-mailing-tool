@@ -114,7 +114,9 @@ source metadata and must be rebuilt before release acceptance.
 
 Status: approved remote rewrite and local cleanup completed; reachable-history
 scans pass. GitHub's old cached commit URL remains accessible and needs external
-support follow-up. Application live testing remains deferred.
+support follow-up. The owner has confirmed submitting the support ticket.
+Application [live testing has started](live-testing-01.md); successful AI generation
+and SMTP seed acceptance remain open.
 
 ## Approval review result
 
@@ -164,8 +166,9 @@ file/index preservation checks. Neither rejection was bypassed.
   commit URL. No raw historical source or credential was retrieved for that check.
   Reachable-ref cleanup therefore does not establish complete server-side erasure.
 
-The [GitHub Support request draft](github-support-request-01.md) records the
-remaining cache/garbage-collection request. It has not been submitted. GitHub
+The [GitHub Support request record](github-support-request-01.md) retains the
+remaining cache/garbage-collection request. The owner confirmed submission on
+2026-10-20; no support reply or completed cache removal has been verified. GitHub
 decides whether revoked credentials warrant further server-side cleanup; external
 clones and previously copied artifacts remain outside this repository's control.
 
