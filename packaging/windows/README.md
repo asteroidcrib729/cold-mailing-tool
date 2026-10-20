@@ -11,6 +11,14 @@ Source resolution freezes the full commit before dependency synchronization and
 packaging. Tests, coverage gates, checksums, lock/source hashes, and installer
 smoke evidence accompany artifacts. Do not create a tag just to fill an input.
 
+The current account scope requires personal Google/Microsoft OAuth sign-in.
+See the [publisher setup guide](../../development-plans/personal-account-setup.md).
+An unsigned preview can open and rehearse offline without registrations. Real
+browser sign-in still needs publisher client configuration; this workflow does
+not create registrations, grant mailbox access, or supply user tokens. Before
+distribution, validate configuration delivery and each provider's real callback,
+refresh, revocation, and sending behavior in the packaged application.
+
 For a local build from PowerShell:
 
 ```powershell

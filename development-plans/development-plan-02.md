@@ -2,6 +2,12 @@
 
 Date: 2026-10-19 (Asia/Karachi).
 
+Scope override dated 2026-10-20: [Plan 03](development-plan-03.md) replaces the
+generic SMTP/company-account requirements below with explicit personal Google
+Gmail or Microsoft Outlook OAuth sign-in. Earlier app-password, SMTP-host, legacy
+credential-import, and organizational-account tasks are historical and no longer
+define supported production sending. Other unfinished Plan 02 obligations remain.
+
 Status: active implementation. The owner authorized autonomous implementation of
 this plan and the additional feature backlog on 2026-10-19. Requirements remain
 open for additions. [Execution 03](execution-03.md) records current implementation,

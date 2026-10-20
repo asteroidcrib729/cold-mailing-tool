@@ -10,6 +10,10 @@ feature requirements and all transferred unfinished work. The
 evidence. [Execution 03](development-plans/execution-03.md) tracks the current
 implementation and remaining acceptance work, including the now-authorized
 [additional features](development-plans/features-and-improvements.md).
+The account scope is now governed by [Plan 03](development-plans/development-plan-03.md):
+users must explicitly sign in with a personal Gmail or Microsoft Outlook account.
+See the [account setup guide](development-plans/personal-account-setup.md) and
+[Execution 04](development-plans/execution-04.md) for implementation and live-verification limits.
 
 ## Repository structure
 
@@ -17,7 +21,7 @@ implementation and remaining acceptance work, including the now-authorized
 src/cold_mailer/
     domain/          # Entities, validation, outcomes, and provider interfaces
     application/     # Shared campaign orchestration
-    infrastructure/  # SQLite, credentials, AI, SMTP, contacts, templates, DNS, legacy import
+    infrastructure/  # SQLite, OAuth accounts/mail, credentials, AI, contacts, templates, DNS
     ui/              # PySide6 window, table models, and workers
     cli.py           # CLI commands
     bootstrap.py     # Profile ownership and dependency wiring
@@ -54,15 +58,16 @@ The History tab keeps exact sender/recipient/content snapshots for every new
 transport attempt, with outcome filters, background search, pagination, local-date
 filters, configurable display timezone, and formula-protected UTC CSV exports.
 CLI filters accept `--since` / `--until` ISO-8601 instants with explicit offsets.
-Existing profiles migrate to schema v3 with a pre-upgrade
-backup. Old attempts without snapshots remain marked unknown. The database stays
+Existing profiles migrate to schema v4 with a pre-upgrade
+backup. Legacy sender rows require Google/Microsoft sign-in and old pending approvals
+are cleared. Old attempts without snapshots remain marked unknown. The database stays
 in rollback journal mode pending verification of a patched SQLite WAL runtime.
 
 Optional additive jitter samples a value in `[0,1)` seconds after each attempt.
 The next due time is saved, so restarting does not resample the interval. Real
-SMTP enforces at least five seconds after the previous completion, plus jitter;
+OAuth API sending enforces at least five seconds after the previous completion, plus jitter;
 longer sender intervals still apply. This pacing does not guarantee delivery or
-avoid filtering. AI generation uses at most two concurrent requests; SMTP remains
+avoid filtering. AI generation uses at most two concurrent requests; sending remains
 serialized. Settings and History remain usable during provider operations.
 
 Contact import now previews columns and sample values, saves reusable mappings,
@@ -93,8 +98,8 @@ The owner has submitted the GitHub Support ticket. My
 HTTP 503/504 failures. [Live Testing 02](development-plans/live-testing-02.md) confirms
 four successful `models/gemini-3.1-flash-lite` requests, including desktop editing,
 autosave, candidate rejection, and restart checks. That is the tested recommendation
-for the current project's screenshot limits. Bulk AI quota governance and SMTP seed
-verification remain open; no live email was sent.
+for the current project's screenshot limits. Bulk AI quota governance, real personal-account
+OAuth consent, and mailbox seed verification remain open; no live email was sent.
 
 ## Development setup
 
@@ -164,9 +169,12 @@ scroll instead of shrinking fields or hiding button text. **Brief and activity**
 opens the AI brief, message template, and activity log; the log also opens when an
 operation starts. Sender accounts and Settings use separate, scrollable cards.
 
-1. In **Sender accounts**, add an SMTP account. Select `starttls` for an explicit
-   STARTTLS connection or `tls` for implicit TLS, commonly port 465. Passwords go
-   to the OS keyring; SQLite stores only account configuration.
+1. Configure the publisher's [OAuth registrations](development-plans/personal-account-setup.md),
+   enable **Live access**, then choose **Sign in with Google** or **Sign in with Microsoft**
+   under **Sender accounts**. The system browser handles account selection and sending
+   consent. Only personal Gmail/Microsoft accounts are supported. Reusable tokens go
+   to the OS credential store; the sender identity is read-only. There is no mailbox
+   password/app-password, arbitrary SMTP host, or company-account connection flow.
 2. In **Campaigns**, create a campaign and import CSV/XLSX contacts. The
    [example CSV](examples/contacts.example.csv) contains synthetic data and reserved
    example addresses; it is not a live recipient list. Legacy `.xls` is unsupported.
@@ -182,7 +190,7 @@ operation starts. Sender accounts and Settings use separate, scrollable cards.
    not overwrite existing edits or approve content. Manual drafting works offline.
 5. Select a message, edit the subject and final body, **Save draft**, then select
    it again and **Approve revision**. Unsaved edits cannot be approved.
-6. **Dry run** reports local message-state counts without AI or SMTP. It does not
+6. **Dry run** reports local message-state counts without provider calls. It does not
    prove credentials, deliverability, or future quota availability. The send path
    rechecks approvals, suppression, attempt budgets, and pacing.
 7. **Send approved** requires live access and a visible confirmation.
@@ -190,7 +198,7 @@ operation starts. Sender accounts and Settings use separate, scrollable cards.
    windows, quotas, approval, and suppression are rechecked at each claim.
    **Stop operation** requests cooperative stop; in-flight I/O has a 30-second
    timeout. The UI remains available for stop/close while worker operations finish.
-8. Inspect message states after the operation. SMTP acceptance is not confirmed
+8. Inspect message states after the operation. Provider acceptance is not confirmed
    delivery. An uncertain result requires checking provider evidence and explicitly
    reconciling accepted versus not sent; it is never automatically retried.
 
@@ -213,10 +221,10 @@ uv --cache-dir .uv-cache run --locked cold-mailer --data-dir C:\Temp\ColdMailer-
 uv --cache-dir .uv-cache run --locked cold-mailer --data-dir C:\Temp\ColdMailer-Demo create "Example campaign"
 ```
 
-The CLI exposes `campaigns`, `senders`, `add-sender`, `import`, `messages`, `edit`,
+The CLI exposes `campaigns`, `senders`, `connect-account`, `disconnect-account`, `import`, `messages`, `edit`,
 `approve`, `dry-run`, `generate`, `run`, `reconcile`, `suppress`, `backup`, and
-`restore`. Use each subcommand's `--help` for arguments. SMTP password entry uses
-a hidden prompt. Network operations require the global `--live` option before
+`restore`. Use each subcommand's `--help` for arguments. Account connection opens
+the system browser and accepts `google` or `microsoft`. Network operations require the global `--live` option before
 the subcommand; default operation is offline.
 
 Exit codes currently implemented: `0` success, `1` file/storage failure, `2`
@@ -243,8 +251,9 @@ provider responses or automatically retrying requests.
 
 The root `.env`, contact CSV, old `config.db`, and `secret.key` remain local and
 ignored. The replacement application does not open or migrate them automatically.
-**Import legacy accounts** explicitly reads a chosen database/key pair without
-changing either file, then stores imported credentials in the current OS profile.
+Password-based sender creation and legacy credential import have been retired.
+Existing campaign/history data remains readable; legacy passwords cannot authorize
+the production send path. Connect a supported personal account explicitly before sending.
 The owner confirms historical credentials have been revoked or rotated; they must
 not be reused for live tests.
 
