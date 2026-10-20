@@ -10,6 +10,13 @@ verification, remaining local work, and owner-dependent release gates;
 open unless that execution record explicitly establishes their acceptance.
 No commit, push, or history rewrite is authorized in this implementation phase.
 
+Subsequent owner instructions authorized development commits/pushes and then
+historical-secret remediation. The current scope, verified isolated rewrite,
+credential-rotation confirmation, approved eight-branch publication and local cleanup,
+and remaining GitHub cache/support follow-up
+are tracked in [Historical Secret Remediation 01](security-remediation-01.md).
+The older phase restrictions above describe the implementation baseline.
+
 Plan 01 is complete as a closed foundation phase. Its unfinished obligations are
 transferred here without being marked implemented. See the
 [closed Plan 01](development-plan-01.md), the historical

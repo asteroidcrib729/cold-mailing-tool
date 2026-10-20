@@ -82,9 +82,12 @@ or uncertain messages. Three attempts per message are permitted; retryable messa
 are eligible only after the retry delay and an explicit later run. There is no
 unattended retry scheduler or background auto-send.
 
-This is an early development build. Hosted CI, real-provider seed tests, signing,
-clean-machine upgrades, remaining schema/fault acceptance, and production acceptance are
-still open. Historical secrets require rotation and a coordinated history rewrite.
+This is an early development build. Hosted development, security, and CodeQL
+checks pass. Real-provider seed tests, signing, hosted Windows installer acceptance,
+clean-machine upgrades, remaining schema/fault acceptance, and production acceptance
+remain open. Credentials are owner-confirmed revoked/rotated and reachable Git
+history has been sanitized. The [remediation record](development-plans/security-remediation-01.md)
+tracks verification and the remaining GitHub cache/support follow-up.
 
 ## Development setup
 
@@ -225,7 +228,8 @@ The root `.env`, contact CSV, old `config.db`, and `secret.key` remain local and
 ignored. The replacement application does not open or migrate them automatically.
 **Import legacy accounts** explicitly reads a chosen database/key pair without
 changing either file, then stores imported credentials in the current OS profile.
-Exposed historical credentials still need rotation.
+The owner confirms historical credentials have been revoked or rotated; they must
+not be reused for live tests.
 
 Backups exclude passwords. `restore SOURCE DESTINATION` creates a new SQLite file;
 it never overwrites an existing profile. Restored pending messages are held as
@@ -249,9 +253,10 @@ deny sockets. No normal verifier sends real email or calls Gemini.
 
 The installer downloads pinned, SHA-256-verified Gitleaks/actionlint binaries into
 ignored `reports/tools`. Security additionally audits the locked dependencies,
-runs Bandit, and scans reachable Git history. The history gate currently reports
-known exposures; I have not hidden them with allowlists. CodeQL and the hosted
-workflows require subsequent GitHub execution and appropriate repository features.
+runs Bandit, and scans reachable Git history. Fresh remote and reconciled local
+history scans report zero findings after remediation, without scanner allowlists.
+Hosted development, security, and CodeQL checks pass for the rewritten application
+checkpoint. GitHub secret scanning and push protection are also enabled.
 
 I can regenerate synthetic light/dark previews of every page without opening a
 live profile or contacting providers:

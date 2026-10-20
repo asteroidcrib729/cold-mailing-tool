@@ -123,8 +123,8 @@ are subsequent engineering work, not external blockers or completed acceptance:
 
 | Gate | Needed participation | Next concrete action |
 | --- | --- | --- |
-| Exposed credentials and Git history | Credential owner revokes/rotates exposed values; coordinated history rewrite and force-push authorization after collaborators are notified. | Review the existing redacted findings; rotate first, then prepare and approve the exact rewrite procedure. No finding suppression. |
-| Hosted GitHub Actions | Commit/push authorization, repository access, and workflow dispatch. | Push the reviewed source when requested; dispatch the selected branch with blank release tag for a preview, or an existing matching release tag. Verify downloaded artifacts/checksums. |
+| Exposed credentials and Git history | Owner confirmed revocation/rotation and approved the eight-branch rewrite and local obsolete-object cleanup. Fresh remote/local scans pass. | [Remediation 01](security-remediation-01.md) records the completed work; old GitHub cached-commit access and other clones remain external follow-up. |
+| Hosted GitHub Actions | Development, security and CodeQL checks pass on the rewritten application checkpoint. | Hosted EXE/MSIX acceptance remains separate: dispatch the selected branch with blank release tag for a preview, or an existing matching release tag. Verify downloaded artifacts/checksums. |
 | MSIX signing and update trust | Publisher/Store identity, signing certificate/key custody, channel policy, and authorized trust configuration. | Supply/choose the release identity; keep unsigned development identity separate. No fabricated certificate or silent trust installation. |
 | Live provider acceptance | Explicit model/account choice, credentials, authorized seed recipients, and live-test authorization. | Rehearse in demo, then run a bounded seed test and reconcile actual provider evidence. |
 | Inbox integration | Chosen provider, minimal OAuth scope, mailbox authorization, and retention policy. | Keep offline EML feedback as the manual fallback until the account flow is reviewed. |
