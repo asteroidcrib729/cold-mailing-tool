@@ -9,6 +9,8 @@ from cold_mailer.settings import Settings
 
 
 class AIGenerator:
+    parallelism = 2  # Each generate call owns and closes its own provider client.
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 

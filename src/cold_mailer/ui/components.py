@@ -96,6 +96,7 @@ class Card(QFrame):
         super().__init__()
         self.setObjectName("card")
         self.content = QVBoxLayout(self)
+        self.content.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         self.content.setContentsMargins(18, 16, 18, 16)
         self.content.setSpacing(10)
         if title:

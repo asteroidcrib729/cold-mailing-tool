@@ -79,7 +79,12 @@ def test_worker_serializes_operations_and_completes_on_gui_thread(qtbot, tmp_pat
         window.start(operation)
         with pytest.raises(ValidationError):
             window.start(operation)
-        assert not window.tabs.isEnabled()
+        assert window.tabs.isEnabled()
+        authoring = window.tabs.widget(0)
+        settings = window.tabs.widget(2)
+        assert authoring is not None and not authoring.isEnabled()
+        assert settings is not None and settings.isEnabled()
+        assert window.history_page.isEnabled()
         released.set()
         qtbot.waitUntil(lambda: window.operation_thread is None, timeout=5000)
         assert window.tabs.isEnabled()

@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QGuiApplication, QPalette
 from PySide6.QtWidgets import QApplication
 
-THEME_MODES = ("system", "light", "dark")
+THEME_MODES = ("system", "light", "dark", "contrast")
 
 
 @dataclass(frozen=True)
@@ -53,6 +53,19 @@ DARK = Colors(
     "#ff93a8",
     "#393557",
 )
+CONTRAST = Colors(
+    "#000000",
+    "#000000",
+    "#121212",
+    "#ffffff",
+    "#ffffff",
+    "#e6e6e6",
+    "#ffe600",
+    "#fff166",
+    "#222000",
+    "#ff9292",
+    "#333333",
+)
 
 
 def resolve_theme(mode: str) -> str:
@@ -60,11 +73,16 @@ def resolve_theme(mode: str) -> str:
         return (
             "dark" if QGuiApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark else "light"
         )
-    return mode if mode in ("light", "dark") else "light"
+    return mode if mode in ("light", "dark", "contrast") else "light"
 
 
 def apply_theme(application: QApplication, mode: str) -> Colors:
-    colors = DARK if resolve_theme(mode) == "dark" else LIGHT
+    resolved = resolve_theme(mode)
+    colors = {"dark": DARK, "light": LIGHT, "contrast": CONTRAST}[resolved]
+    if application.property(
+        "coldMailerResolvedTheme"
+    ) == resolved and application.styleSheet() == application.property("coldMailerStyle"):
+        return colors
     # Fusion avoids mixing Windows native subcontrols with stylesheet geometry.
     if not application.property("coldMailerFusion"):
         application.setStyle("Fusion")
@@ -110,12 +128,12 @@ def apply_theme(application: QApplication, mode: str) -> Colors:
         palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(colors.muted))
     application.setPalette(palette)
     c = colors
-    variant = "dark" if colors == DARK else "light"
+    variant = "dark" if colors in (DARK, CONTRAST) else "light"
     assets = Path(__file__).with_name("assets")
     down = (assets / f"down-{variant}.svg").as_posix()
     up = (assets / f"up-{variant}.svg").as_posix()
     check = (assets / f"check-{variant}.svg").as_posix()
-    primary_text = "#211b42" if colors == DARK else "#ffffff"
+    primary_text = "#211b42" if colors in (DARK, CONTRAST) else "#ffffff"
     application.setStyleSheet(f"""
         QWidget {{ color: {c.text}; font-family: 'Segoe UI'; font-size: 13px; }}
         QMainWindow, QWidget#appRoot, QWidget#page, QScrollArea#pageScroll,
@@ -133,35 +151,34 @@ def apply_theme(application: QApplication, mode: str) -> Colors:
         QFrame#card {{ background: {c.surface}; border: 1px solid {c.border}; border-radius: 12px; }}
         QFrame#footer {{ border-top: 1px solid {c.border}; }}
         QWidget#cardBody, QWidget#field, QWidget#emptyState {{ background: transparent; }}
-        QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
+        QLineEdit, QComboBox, QAbstractSpinBox {{
             background: {c.surface}; color: {c.text}; border: 1px solid {c.border};
             border-radius: 7px; padding: 0 11px; min-height: 38px;
             selection-background-color: {c.selection}; selection-color: {c.text};
         }}
         QPlainTextEdit {{ background: {c.surface}; color: {c.text}; border: 1px solid {c.border};
             border-radius: 8px; padding: 9px; selection-background-color: {c.selection}; selection-color: {c.text}; }}
-        QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {c.muted}; }}
-        QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QPlainTextEdit:focus {{ border: 1px solid {c.accent}; }}
-        QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled,
+        QLineEdit:hover, QComboBox:hover, QAbstractSpinBox:hover {{ border-color: {c.muted}; }}
+        QLineEdit:focus, QComboBox:focus, QAbstractSpinBox:focus, QPlainTextEdit:focus {{ border: 1px solid {c.accent}; }}
+        QLineEdit:disabled, QComboBox:disabled, QAbstractSpinBox:disabled,
         QPlainTextEdit:disabled {{ background: {c.raised}; color: {c.muted}; }}
         QLineEdit:read-only, QPlainTextEdit:read-only {{ background: {c.raised}; }}
         QComboBox {{ padding-right: 38px; combobox-popup: 0; }}
-        QComboBox::drop-down {{ subcontrol-origin: padding; subcontrol-position: top right;
+        QComboBox::drop-down, QDateEdit::drop-down {{ subcontrol-origin: padding; subcontrol-position: top right;
             width: 30px; border: none; border-left: 1px solid {c.border}; }}
-        QComboBox::down-arrow {{ image: url("{down}"); width: 13px; height: 13px; }}
+        QComboBox::down-arrow, QDateEdit::down-arrow {{ image: url("{down}"); width: 13px; height: 13px; }}
         QComboBox QAbstractItemView {{ background: {c.surface}; color: {c.text};
             border: 1px solid {c.border}; padding: 5px; outline: 0;
             selection-background-color: {c.tint}; selection-color: {c.accent}; }}
         QComboBox QAbstractItemView::item {{ min-height: 30px; padding: 4px 8px; }}
-        QSpinBox, QDoubleSpinBox {{ padding-right: 32px; }}
-        QSpinBox::up-button, QDoubleSpinBox::up-button {{ subcontrol-origin: border;
+        QAbstractSpinBox {{ padding-right: 32px; }}
+        QAbstractSpinBox::up-button {{ subcontrol-origin: border;
             subcontrol-position: top right; width: 28px; border: none; border-left: 1px solid {c.border}; border-top-right-radius: 7px; }}
-        QSpinBox::down-button, QDoubleSpinBox::down-button {{ subcontrol-origin: border;
+        QAbstractSpinBox::down-button {{ subcontrol-origin: border;
             subcontrol-position: bottom right; width: 28px; border: none; border-left: 1px solid {c.border}; border-bottom-right-radius: 7px; }}
-        QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
-        QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{ background: {c.tint}; }}
-        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{ image: url("{up}"); width: 12px; height: 12px; }}
-        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{ image: url("{down}"); width: 12px; height: 12px; }}
+        QAbstractSpinBox::up-button:hover, QAbstractSpinBox::down-button:hover {{ background: {c.tint}; }}
+        QAbstractSpinBox::up-arrow {{ image: url("{up}"); width: 12px; height: 12px; }}
+        QAbstractSpinBox::down-arrow {{ image: url("{down}"); width: 12px; height: 12px; }}
         QPushButton, QToolButton {{ background: {c.surface}; color: {c.text}; border: 1px solid {c.border};
             border-radius: 7px; padding: 0 13px; min-height: 38px; font-weight: 600; }}
         QPushButton:hover, QToolButton:hover {{ background: {c.tint}; border-color: {c.accent}; }}
@@ -206,4 +223,6 @@ def apply_theme(application: QApplication, mode: str) -> Colors:
         QMenu::item:selected {{ background: {c.tint}; color: {c.accent}; }}
         QToolTip {{ background: {c.surface}; color: {c.text}; border: 1px solid {c.border}; padding: 6px; }}
     """)
+    application.setProperty("coldMailerResolvedTheme", resolved)
+    application.setProperty("coldMailerStyle", application.styleSheet())
     return colors

@@ -114,6 +114,9 @@ class Message:
     approval: str | None
     sender_email: str
     message_id: str
+    created_us: int | None = None
+    updated_us: int | None = None
+    instructions: str = ""
 
 
 @dataclass(frozen=True)
@@ -137,6 +140,25 @@ class RunSummary:
 class ImportIssue:
     row: int
     reason: str
+
+
+@dataclass(frozen=True)
+class ImportSource:
+    label: str
+    sha256: str
+    permission_note: str = ""
+    reviewed: bool = False
+
+    def validate(self) -> None:
+        if (
+            not self.label.strip()
+            or len(self.label) > 200
+            or len(self.permission_note) > 2000
+            or not re.fullmatch(r"[0-9a-f]{64}", self.sha256)
+        ):
+            raise ValidationError(
+                "Import source needs a label (200 characters maximum), SHA-256, and permission notes of at most 2,000 characters."
+            )
 
 
 @dataclass

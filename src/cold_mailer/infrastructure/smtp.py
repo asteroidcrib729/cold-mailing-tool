@@ -45,6 +45,8 @@ def compose(sender: Sender, message: Message) -> EmailMessage:
 
 
 class SMTPTransport:
+    minimum_interval = 5.0
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 

@@ -3,6 +3,7 @@
 import argparse
 import json
 import tempfile
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
@@ -64,7 +65,7 @@ def main() -> None:
         window.winId()
         window.resize(args.width, args.height)
         qt.processEvents()
-        for mode in ("light", "dark"):
+        for mode in ("light", "dark", "contrast"):
             window.set_theme(mode)
             for page in range(window.tabs.count()):
                 window.tabs.setCurrentIndex(page)
@@ -74,6 +75,11 @@ def main() -> None:
                 elif page == 1:
                     window.senders.setCurrentIndex(1)
                 qt.processEvents()
+                deadline = time.monotonic() + 3
+                while window.history_page.future is not None:
+                    qt.processEvents()
+                    if time.monotonic() > deadline:
+                        raise RuntimeError("Background history did not finish for preview.")
                 target = args.output_dir / f"{mode}-{page}-{args.width}x{args.height}.png"
                 if not window.grab().save(str(target)):
                     raise RuntimeError("Preview could not be saved.")

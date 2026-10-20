@@ -11,15 +11,17 @@ from filelock import FileLock, Timeout
 from cold_mailer.application.campaigns import CampaignService
 from cold_mailer.domain.models import ValidationError
 from cold_mailer.domain.ports import CredentialStore
-from cold_mailer.infrastructure.credentials import OSKeyring
+from cold_mailer.infrastructure.credentials import MemoryCredentials, OSKeyring
+from cold_mailer.infrastructure.demo import DemoTransport, populate
 from cold_mailer.infrastructure.smtp import SMTPTransport
 from cold_mailer.infrastructure.storage import Store
 from cold_mailer.settings import Settings
 
 
 class Application:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, *, demo: bool = False) -> None:
         self.settings = settings
+        self.demo = demo
         self.lock = FileLock(str(settings.data_dir / "profile.lock"), timeout=0)
 
     def __enter__(self) -> Application:
@@ -39,6 +41,14 @@ class Application:
             self.service = CampaignService(
                 self.store, self.credentials, SMTPTransport(self.settings)
             )
+            if self.demo:
+                if self.store.campaigns() or self.store.senders():
+                    raise ValidationError("Demo requires a new, empty isolated profile.")
+                credentials = MemoryCredentials()
+                populate(self.store, credentials)
+                self.credentials = credentials
+                self.settings = replace(self.settings, network=False, api_key="")
+                self.service = CampaignService(self.store, credentials, DemoTransport())
             return self
         except BaseException:
             self.lock.release()

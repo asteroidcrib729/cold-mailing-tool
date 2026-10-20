@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections.abc import Callable
 from dataclasses import asdict, is_dataclass, replace
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from threading import Event
 
 from PySide6.QtCore import QSize, QSortFilterProxyModel, Qt, QThread, QTimer, Slot
-from PySide6.QtGui import QCloseEvent, QGuiApplication
+from PySide6.QtGui import QCloseEvent, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractButton,
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
@@ -38,18 +42,30 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from cold_mailer.application.campaigns import CampaignService
+from cold_mailer.application.campaigns import CampaignService, GenerationCandidate
+from cold_mailer.application.review import quality_hints, reading_preview
 from cold_mailer.bootstrap import Application
 from cold_mailer.domain.models import Message, Sender, Status, ValidationError, identifier
 from cold_mailer.infrastructure.ai import AIGenerator
-from cold_mailer.infrastructure.contacts import load_contacts
+from cold_mailer.infrastructure.backup import encrypted_backup
+from cold_mailer.infrastructure.contacts import read_document
+from cold_mailer.infrastructure.demo import DemoGenerator
 from cold_mailer.infrastructure.dns import domain_health
+from cold_mailer.infrastructure.doctor import diagnostics
+from cold_mailer.infrastructure.feedback import PreparedFeedback
 from cold_mailer.infrastructure.legacy import read_legacy_accounts
+from cold_mailer.infrastructure.organization import Organization
 from cold_mailer.infrastructure.smtp import SMTPTransport
+from cold_mailer.infrastructure.support import support_preview, write_support_bundle
 from cold_mailer.settings import VERSION, Settings
+from cold_mailer.ui.autosave import DraftSaver
 from cold_mailer.ui.components import Card, field, icon, label, scroll_content
+from cold_mailer.ui.history import HistoryExported, HistoryPage
+from cold_mailer.ui.imports import ContactImportDialog, PreparedImport
 from cold_mailer.ui.models import MessageModel
-from cold_mailer.ui.theme import DARK, THEME_MODES, apply_theme
+from cold_mailer.ui.scrolling import install_scrolling
+from cold_mailer.ui.theme import CONTRAST, DARK, THEME_MODES, apply_theme
+from cold_mailer.ui.tools import CampaignTools
 from cold_mailer.ui.workers import Operation, Worker
 
 
@@ -62,7 +78,25 @@ class Window(QMainWindow):
         self.worker: Worker | None = None
         self.current_message: Message | None = None
         self.dirty = False
+        self.campaign_dirty = False
+        self.loaded_campaign: str | None = None
+        self.campaign_snapshot: tuple[str, str] = ("", "")
         self.closing = False
+        self.pending_close = False
+        self.pending_operation: Operation | None = None
+        self.pending_navigation: tuple[str, str] | None = None
+        self.autosave_timer = QTimer(self)
+        self.autosave_timer.setSingleShot(True)
+        self.autosave_timer.setInterval(800)
+        self.autosave_timer.timeout.connect(self.autosave)
+        self.max_save_timer = QTimer(self)
+        self.max_save_timer.setSingleShot(True)
+        self.max_save_timer.setInterval(5000)
+        self.max_save_timer.timeout.connect(self.autosave)
+        self.saver = DraftSaver(self.store, self)
+        self.saver.completed.connect(self.draft_saved)
+        self.saver.failed.connect(self.draft_failed)
+        self.saver.campaign_completed.connect(self.campaign_saved)
         self.brief_timer = QTimer(self)
         self.brief_timer.setSingleShot(True)
         self.brief_timer.timeout.connect(self.scroll_to_brief)
@@ -93,9 +127,10 @@ class Window(QMainWindow):
         identity.addWidget(label("Cold Mailer", "brand"))
         header.addLayout(identity)
         header.addStretch()
+        self.button("Commands", self.command_palette, header, kind="quiet")
         header.addWidget(label("Theme", "fieldLabel", wrap=False))
         self.theme_selector = self.theme_combo()
-        self.theme_selector.setFixedWidth(126)
+        self.theme_selector.setFixedWidth(150)
         header.addWidget(self.theme_selector)
         self.mode_badge = label("Offline workspace", "modeBadge", wrap=False)
         self.mode_badge.setFixedHeight(34)
@@ -118,6 +153,30 @@ class Window(QMainWindow):
         self._campaign_tab()
         self._sender_tab()
         self._settings_tab()
+        self.history_page = HistoryPage(self.store, self.start)
+        self.tabs.addTab(self.history_page, "History")
+        self.tools_page = CampaignTools(
+            self.store,
+            self.campaign_id,
+            self.selected_message,
+            self.start,
+            self.reload_messages,
+            self.editor_ready,
+        )
+        self.tabs.addTab(self.tools_page, "Campaign tools")
+        self.tabs.currentChanged.connect(self.tab_changed)
+        self.scrollers = install_scrolling(self)
+        self.update_scrolling()
+        self.shortcuts = []
+        for key, callback in (
+            ("Ctrl+K", self.command_palette),
+            ("Ctrl+S", self.save_draft),
+            ("Ctrl+F", self.focus_search),
+            ("F1", self.keyboard_help),
+        ):
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.activated.connect(callback)
+            self.shortcuts.append(shortcut)
 
         footer = QFrame()
         footer.setObjectName("footer")
@@ -169,7 +228,7 @@ class Window(QMainWindow):
     def set_theme(self, mode: str) -> None:
         def save() -> None:
             if mode not in THEME_MODES:
-                raise ValidationError("Choose System, Light, or Dark appearance.")
+                raise ValidationError("Choose System, Light, Dark, or Contrast appearance.")
             self.store.save_preference("appearance.theme", mode)
             self.theme_mode = mode
 
@@ -185,7 +244,10 @@ class Window(QMainWindow):
             combo.blockSignals(True)
             combo.setCurrentIndex(combo.findData(self.theme_mode))
             combo.blockSignals(False)
-        self.setProperty("resolvedTheme", "dark" if self.colors == DARK else "light")
+        self.setProperty(
+            "resolvedTheme",
+            "contrast" if self.colors == CONTRAST else "dark" if self.colors == DARK else "light",
+        )
         self.setWindowIcon(icon("mail", self.colors.accent))
         self.brand_icon.setPixmap(icon("mail", self.colors.accent).pixmap(36, 36))
         for button in self.findChildren(QAbstractButton):
@@ -195,7 +257,7 @@ class Window(QMainWindow):
                     self.colors.danger if button.property("kind") == "danger" else self.colors.text
                 )
                 if button.property("kind") == "primary":
-                    color = "#211b42" if self.colors == DARK else "#ffffff"
+                    color = "#211b42" if self.colors in (DARK, CONTRAST) else "#ffffff"
                 button.setIcon(icon(str(name), color))
 
     @Slot()
@@ -204,6 +266,13 @@ class Window(QMainWindow):
             self.apply_appearance()
 
     def update_live_badge(self) -> None:
+        if self.application.demo:
+            self.live.blockSignals(True)
+            self.live.setChecked(False)
+            self.live.blockSignals(False)
+            self.live.setEnabled(False)
+            self.mode_badge.setText("DEMO · no email transmission")
+            return
         self.mode_badge.setText(
             "Live access enabled" if self.live.isChecked() else "Offline workspace"
         )
@@ -323,9 +392,20 @@ class Window(QMainWindow):
         self.body.setAccessibleName("Final message body")
         self.body.setPlaceholderText("Your final message, including greeting and sign-off.")
         self.body.setMinimumHeight(126)
-        self.editor.content.addWidget(field("Final message", self.body), 1)
+        body_field = field("Final message", self.body)
+        body_field.setMinimumHeight(172)
+        self.editor.content.addWidget(body_field, 1)
         self.subject.textEdited.connect(self.mark_dirty)
         self.body.textChanged.connect(self.mark_dirty)
+        self.instructions = QLineEdit()
+        self.instructions.setPlaceholderText("Tone, focus, or recipient-specific preferences")
+        self.instructions.textEdited.connect(self.mark_dirty)
+        self.editor.content.addWidget(field("Recipient instructions", self.instructions))
+        tools = QHBoxLayout()
+        self.button("Preview", self.preview_message, tools, kind="quiet")
+        self.button("Revisions", self.show_revisions, tools, kind="quiet")
+        self.button("New candidate", self.regenerate, tools, kind="quiet")
+        self.editor.content.addLayout(tools)
         actions = QHBoxLayout()
         actions.setSpacing(8)
         self.save_draft_button = self.button("Save draft", self.save_draft, actions, glyph="save")
@@ -353,6 +433,8 @@ class Window(QMainWindow):
             "Hi {{ first_name }},\n\n{{ AI_GENERATED_BODY }}\n\nBest,\nYour Name"
         )
         self.wrapper.setAccessibleName("Email wrapper")
+        self.prompt.textChanged.connect(self.mark_campaign_dirty)
+        self.wrapper.textChanged.connect(self.mark_campaign_dirty)
         brief_layout.addWidget(field("AI brief", self.prompt))
         brief_layout.addWidget(field("Message template", self.wrapper))
         self.brief_tabs.addTab(brief, "Brief and template")
@@ -508,6 +590,35 @@ class Window(QMainWindow):
             )
         )
         left.addWidget(appearance)
+        behavior = Card(
+            "Editing and motion",
+            "Autosave stores messages and instructions, never passwords or API keys.",
+        )
+        self.autosave_toggle = QCheckBox("Automatically save message edits")
+        self.autosave_toggle.setChecked(self.store.preference("editor.autosave", "true") == "true")
+        self.smooth_toggle = QCheckBox("Smooth mouse-wheel scrolling")
+        self.smooth_toggle.setChecked(self.store.preference("appearance.smooth", "true") == "true")
+        self.motion_toggle = QCheckBox("Reduce motion (disable scroll animation)")
+        self.motion_toggle.setChecked(
+            self.store.preference("appearance.reduce_motion", "false") == "true"
+        )
+        self.jitter_toggle = QCheckBox("Add a random 0–1 second delay after each send")
+        self.jitter_toggle.setChecked(self.store.preference("pacing.jitter", "true") == "true")
+        for toggle in (
+            self.autosave_toggle,
+            self.smooth_toggle,
+            self.motion_toggle,
+            self.jitter_toggle,
+        ):
+            toggle.toggled.connect(self.save_behavior)
+            behavior.content.addWidget(toggle)
+        behavior.content.addWidget(
+            label(
+                "Pacing preserves your account interval. Random timing does not guarantee acceptance or prevent blocking.",
+                "hint",
+            )
+        )
+        left.addWidget(behavior)
         ai = Card(
             "AI configuration",
             "Use the model you choose. Generation always needs explicit live access.",
@@ -559,6 +670,9 @@ class Window(QMainWindow):
             "Backups include campaigns and outcomes, but never passwords.",
         )
         self.button("Back up database", self.backup, backup.content, glyph="save")
+        self.button("Create encrypted backup", self.backup_encrypted, backup.content)
+        self.button("Local runtime doctor", self.show_doctor, backup.content)
+        self.button("Preview support bundle", self.support_bundle, backup.content)
         backup.content.addWidget(label(f"Version {VERSION} \u00b7 Local profile", "hint"))
         profile = label(str(self.application.settings.data_dir), "hint")
         profile.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -607,6 +721,8 @@ class Window(QMainWindow):
         self.reload_messages()
 
     def reload_messages(self) -> None:
+        if self.dirty or self.saver.future is not None:
+            return
         campaign_id = self.campaign.currentData()
         messages = self.store.messages(str(campaign_id)) if campaign_id else []
         self.model.replace(messages)
@@ -620,41 +736,67 @@ class Window(QMainWindow):
         self.recipient.setText("Choose a recipient from the list")
         self.subject.clear()
         self.body.clear()
+        self.instructions.clear()
+        self.instructions.setReadOnly(True)
         self.subject.setReadOnly(True)
         self.body.setReadOnly(True)
         self.dirty = False
 
     def select_campaign(self) -> None:
-        if (
-            self.dirty
-            and QMessageBox.question(self, "Unsaved edits", "Discard unsaved message edits?")
-            != QMessageBox.StandardButton.Yes
+        if self.saver.future is not None or (
+            (self.dirty or self.campaign_dirty) and self.autosave_toggle.isChecked()
         ):
+            target = self.campaign.currentData()
+            if target and self.loaded_campaign and target != self.loaded_campaign:
+                self.pending_navigation = ("campaign", str(target))
+            self.autosave()
+            if self.loaded_campaign:
+                self.campaign.blockSignals(True)
+                self.campaign.setCurrentIndex(self.campaign.findData(self.loaded_campaign))
+                self.campaign.blockSignals(False)
+            return
+        if (self.dirty or self.campaign_dirty) and not self.confirm_unsaved():
             self.campaign.blockSignals(True)
-            if self.current_message:
-                self.campaign.setCurrentIndex(
-                    self.campaign.findData(self.current_message.campaign_id)
-                )
+            if self.loaded_campaign:
+                self.campaign.setCurrentIndex(self.campaign.findData(self.loaded_campaign))
             self.campaign.blockSignals(False)
             return
+        if self.current_message:
+            self.store.release_edit(self.current_message.id)
+        self.dirty = False
+        self.autosave_timer.stop()
+        self.max_save_timer.stop()
         campaign_id = self.campaign.currentData()
         row = next((row for row in self.store.campaigns() if row["id"] == campaign_id), None)
         if row:
+            self.prompt.blockSignals(True)
+            self.wrapper.blockSignals(True)
             self.prompt.setPlainText(row["prompt"])
             self.wrapper.setPlainText(row["wrapper"])
+            self.prompt.blockSignals(False)
+            self.wrapper.blockSignals(False)
+            self.loaded_campaign = str(campaign_id)
+            self.campaign_snapshot = (row["prompt"], row["wrapper"])
+            self.campaign_dirty = False
         self.reload_messages()
 
     def select_message(self) -> None:
         index = self.proxy.mapToSource(self.table.currentIndex())
         if not index.isValid():
             return
-        if (
-            self.dirty
-            and QMessageBox.question(self, "Unsaved edits", "Discard unsaved message edits?")
-            != QMessageBox.StandardButton.Yes
-        ):
+        target_id = self.model.messages[index.row()].id
+        if self.saver.future is not None or (self.dirty and self.autosave_toggle.isChecked()):
+            if self.current_message is None or target_id != self.current_message.id:
+                self.pending_navigation = ("message", target_id)
+            self.autosave()
+            self.restore_editor_selection()
             return
-        message = self.model.messages[index.row()]
+        if self.dirty and not self.confirm_unsaved():
+            self.restore_editor_selection()
+            return
+        if self.current_message:
+            self.store.release_edit(self.current_message.id)
+        message = self.store.message(target_id)
         self.current_message = message
         self.recipient.setText(
             f"{message.recipient} · {message.status.value} · revision {message.revision}"
@@ -663,6 +805,7 @@ class Window(QMainWindow):
         self.body.blockSignals(True)
         self.subject.setText(message.subject)
         self.body.setPlainText(message.body)
+        self.instructions.setText(message.instructions)
         self.subject.blockSignals(False)
         self.body.blockSignals(False)
         locked = message.status in {
@@ -673,6 +816,7 @@ class Window(QMainWindow):
         }
         self.subject.setReadOnly(locked)
         self.body.setReadOnly(locked)
+        self.instructions.setReadOnly(locked)
         self.dirty = False
 
     def mark_dirty(self) -> None:
@@ -680,9 +824,31 @@ class Window(QMainWindow):
             self.dirty = (
                 self.subject.text() != self.current_message.subject
                 or self.body.toPlainText() != self.current_message.body
+                or self.instructions.text() != self.current_message.instructions
             )
             if self.dirty:
+                try:
+                    held = self.store.hold_edit(self.current_message.id)
+                except Exception:
+                    self.state.setText(
+                        "Unable to register this edit. Copy your changes and check storage before continuing."
+                    )
+                    return
+                if not held:
+                    self.subject.setReadOnly(True)
+                    self.body.setReadOnly(True)
+                    self.instructions.setReadOnly(True)
+                    self.state.setText(
+                        "This revision was claimed before editing. Copy your changes and reload; the sent snapshot cannot be changed."
+                    )
+                    return
                 self.state.setText("Unsaved message edits · save before approval")
+                if self.autosave_toggle.isChecked():
+                    self.autosave_timer.start()
+                    if not self.max_save_timer.isActive():
+                        self.max_save_timer.start()
+            else:
+                self.store.release_edit(self.current_message.id)
 
     def new_campaign(self) -> None:
         name, accepted = QInputDialog.getText(self, "New campaign", "Campaign name")
@@ -697,11 +863,33 @@ class Window(QMainWindow):
             self.guard(create)
 
     def save_campaign(self) -> None:
-        self.guard(
-            lambda: self.store.save_campaign(
-                self.campaign_id(), self.prompt.toPlainText(), self.wrapper.toPlainText()
+        def save() -> None:
+            if self.saver.future is not None:
+                raise ValidationError("Wait for the current save to finish.")
+            self.store.save_campaign(
+                self.loaded_campaign or self.campaign_id(),
+                self.prompt.toPlainText(),
+                self.wrapper.toPlainText(),
             )
-        )
+            self.campaign_snapshot = (self.prompt.toPlainText(), self.wrapper.toPlainText())
+            self.campaign_dirty = False
+
+        self.guard(save)
+
+    @Slot()
+    def mark_campaign_dirty(self) -> None:
+        if self.loaded_campaign is None:
+            return
+        self.campaign_dirty = (
+            self.prompt.toPlainText(),
+            self.wrapper.toPlainText(),
+        ) != self.campaign_snapshot
+        if self.campaign_dirty:
+            self.state.setText("Unsaved campaign brief / template changes")
+            if self.autosave_toggle.isChecked():
+                self.autosave_timer.start()
+                if not self.max_save_timer.isActive():
+                    self.max_save_timer.start()
 
     def import_contacts(self) -> None:
         def prepare() -> None:
@@ -732,20 +920,11 @@ class Window(QMainWindow):
             if not path:
                 return
 
-            def operation(stop: object, emit: object) -> object:
-                report = load_contacts(Path(path), self.store.suppressed())
-                count = self.store.add_contacts(
-                    campaign_id, sender_id, report.contacts, rotate=rotation
+            self.start(
+                lambda stop, emit: PreparedImport(
+                    Path(path), read_document(Path(path)), campaign_id, sender_id, rotation
                 )
-                return {
-                    "added": count,
-                    "existing": len(report.contacts) - count,
-                    "invalid_rows": [asdict(issue) for issue in report.issues],
-                    "duplicates": report.duplicates,
-                    "suppressed": report.suppressed,
-                }
-
-            self.start(operation)
+            )
 
         self.guard(prepare)
 
@@ -754,9 +933,18 @@ class Window(QMainWindow):
             message = self.current_message
             if message is None:
                 raise ValidationError("Select a message first.")
-            self.store.edit(
-                message.id, self.subject.text(), self.body.toPlainText(), message.revision
+            if self.saver.future is not None:
+                raise ValidationError("A draft save is already in progress.")
+            self.store.save_draft(
+                message.id,
+                self.subject.text(),
+                self.body.toPlainText(),
+                message.revision,
+                instructions=self.instructions.text(),
             )
+            self.autosave_timer.stop()
+            self.max_save_timer.stop()
+            self.store.release_edit(message.id)
             self.dirty = False
             self.reload_messages()
 
@@ -793,14 +981,21 @@ class Window(QMainWindow):
 
     def generate(self) -> None:
         def prepare() -> None:
-            settings = self.network_settings()
+            if self.saver.future is not None:
+                raise ValidationError("Wait for the pending save before generating drafts.")
+            settings = None if self.application.demo else self.network_settings()
             campaign_id = self.campaign_id()
             self.store.save_campaign(
                 campaign_id, self.prompt.toPlainText(), self.wrapper.toPlainText()
             )
+            self.campaign_snapshot = (self.prompt.toPlainText(), self.wrapper.toPlainText())
+            self.campaign_dirty = False
             self.start(
                 lambda stop, emit: self.application.service.generate(
-                    campaign_id, AIGenerator(settings), stop, emit
+                    campaign_id,
+                    DemoGenerator() if settings is None else AIGenerator(settings),
+                    stop,
+                    emit,
                 )
             )
 
@@ -808,24 +1003,36 @@ class Window(QMainWindow):
 
     def send(self) -> None:
         def prepare() -> None:
-            settings = self.network_settings()
+            settings = None if self.application.demo else self.network_settings()
             if self.dirty:
                 raise ValidationError("Save or discard current edits before sending.")
             campaign_id = self.campaign_id()
             counts = self.application.service.dry_run(campaign_id)
+            selected_ids = [
+                self.model.messages[self.proxy.mapToSource(self.proxy.index(row, 0)).row()].id
+                for row in range(self.proxy.rowCount())
+            ]
+            scope = f"Frozen audience: {len(selected_ids)} visible recipients. Later filter, approval or revision changes cannot expand this run."
             if (
                 QMessageBox.question(
                     self,
-                    "Confirm live campaign",
-                    f"Submit only approved/eligible messages through SMTP?\n{counts}",
+                    "Confirm demo rehearsal" if settings is None else "Confirm live campaign",
+                    f"Simulate approved messages with NO transmission?\n{scope}\nCampaign totals: {counts}"
+                    if settings is None
+                    else f"Submit only approved/eligible messages through SMTP?\n{scope}\nCampaign totals: {counts}",
                 )
                 != QMessageBox.StandardButton.Yes
             ):
                 return
-            service = CampaignService(
-                self.store, self.application.credentials, SMTPTransport(settings)
+            service = (
+                self.application.service
+                if settings is None
+                else CampaignService(
+                    self.store, self.application.credentials, SMTPTransport(settings)
+                )
             )
-            self.start(lambda stop, emit: service.run(campaign_id, stop, emit))
+            run_id = Organization(self.store).freeze(campaign_id, selected_ids)
+            self.start(lambda stop, emit: service.run(campaign_id, stop, emit, run_id=run_id))
 
         self.guard(prepare)
 
@@ -991,7 +1198,10 @@ class Window(QMainWindow):
         self.worker.finished.connect(self.operation_thread.quit)
         self.operation_thread.finished.connect(self.worker.deleteLater)
         self.operation_thread.finished.connect(self.finished)
-        self.tabs.setEnabled(False)
+        for index in (0, 1):
+            page = self.tabs.widget(index)
+            if page is not None:
+                page.setEnabled(False)
         self.live.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.state.setText("Operation running · stop is available")
@@ -999,6 +1209,67 @@ class Window(QMainWindow):
 
     @Slot(object)
     def result(self, value: object) -> None:
+        if isinstance(value, HistoryExported):
+            self.history_page.count.setText(
+                f"Exported {value.count} attempts. Treat this file as private."
+            )
+            return
+        if isinstance(value, PreparedFeedback):
+            if not self.closing and not (self.worker is not None and self.worker.stop.is_set()):
+                self.tools_page.receive(value)
+            return
+        if isinstance(value, PreparedImport):
+            if self.closing or (self.worker is not None and self.worker.stop.is_set()):
+                return
+            dialog = ContactImportDialog(value, self.store, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                mapping, source = dialog.mapping(), dialog.source()
+
+                def perform(stop: object, emit: object) -> object:
+                    document = read_document(value.path, expected_sha256=value.document.sha256)
+                    report = document.parse(mapping, self.store.suppressed())
+                    if isinstance(stop, Event) and stop.is_set():
+                        return {"cancelled": True}
+                    count = self.store.add_contacts(
+                        value.campaign_id,
+                        value.sender_id,
+                        report.contacts,
+                        rotate=value.rotation,
+                        source=source,
+                    )
+                    return {
+                        "added": count,
+                        "existing": len(report.contacts) - count,
+                        "invalid_rows": [asdict(issue) for issue in report.issues],
+                        "duplicates": report.duplicates,
+                        "suppressed": report.suppressed,
+                    }
+
+                if self.operation_thread is None:
+                    self.start(perform)
+                else:
+                    self.pending_operation = perform
+            dialog.deleteLater()
+            return
+        if isinstance(value, GenerationCandidate):
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Generated candidate · current draft is preserved until accepted")
+            dialog.resize(700, 500)
+            layout = QVBoxLayout(dialog)
+            preview = QPlainTextEdit(value.subject + "\n\n" + value.body)
+            preview.setReadOnly(True)
+            layout.addWidget(preview)
+            self.button(
+                "Use this candidate as an unapproved draft", dialog.accept, layout, kind="primary"
+            )
+            self.button("Keep my current draft", dialog.reject, layout)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.guard(
+                    lambda: self.store.edit(
+                        value.message_id, value.subject, value.body, value.revision
+                    )
+                )
+            return
         self.log.appendPlainText(
             str(asdict(value) if is_dataclass(value) and not isinstance(value, type) else value)
         )
@@ -1016,13 +1287,19 @@ class Window(QMainWindow):
         self.worker = None
         self.operation_thread = None
         thread.deleteLater()
-        self.tabs.setEnabled(True)
-        self.live.setEnabled(True)
+        for index in (0, 1):
+            page = self.tabs.widget(index)
+            if page is not None:
+                page.setEnabled(True)
+        self.live.setEnabled(not self.application.demo)
         self.stop_button.setEnabled(False)
         self.state.setText("Operation finished · inspect per-message outcomes")
         self.reload_messages()
         if self.closing:
             self.close()
+        elif self.pending_operation is not None:
+            operation, self.pending_operation = self.pending_operation, None
+            self.start(operation)
 
     def stop(self) -> None:
         if self.worker is not None:
@@ -1030,20 +1307,493 @@ class Window(QMainWindow):
             self.state.setText("Stopping · waiting for bounded in-flight work")
             self.stop_button.setEnabled(False)
 
+    def restore_editor_selection(self) -> None:
+        if self.current_message:
+            for row, message in enumerate(self.model.messages):
+                if message.id == self.current_message.id:
+                    selection = self.table.selectionModel()
+                    selection.blockSignals(True)
+                    self.table.setCurrentIndex(self.proxy.mapFromSource(self.model.index(row, 0)))
+                    selection.blockSignals(False)
+                    break
+
+    @Slot()
+    def autosave(self) -> None:
+        message = self.current_message
+        if self.saver.future is None and not self.dirty and self.campaign_dirty:
+            self.queue_campaign_save()
+            return
+        if not self.dirty or message is None or self.saver.future is not None:
+            return
+        self.autosave_timer.stop()
+        self.max_save_timer.stop()
+        if self.saver.save(
+            message.id,
+            message.revision,
+            self.subject.text(),
+            self.body.toPlainText(),
+            self.instructions.text(),
+        ):
+            self.state.setText("Saving draft…")
+
+    @Slot(str, object)
+    def draft_saved(self, message_id: str, message: Message) -> None:
+        if self.current_message is not None and self.current_message.id == message_id:
+            self.current_message = message
+            self.dirty = (
+                self.subject.text(),
+                self.body.toPlainText(),
+                self.instructions.text(),
+            ) != (message.subject, message.body, message.instructions)
+            self.state.setText(
+                "Unsaved edits · another save queued"
+                if self.dirty
+                else "Draft saved · approval required"
+            )
+            if self.dirty:
+                self.store.hold_edit(message_id)
+                if self.autosave_toggle.isChecked():
+                    self.autosave_timer.start()
+            else:
+                self.store.release_edit(message_id)
+                self.max_save_timer.stop()
+                self.autosave_timer.stop()
+        if self.pending_close:
+            self.close()
+        elif self.campaign_dirty and self.autosave_toggle.isChecked():
+            self.queue_campaign_save()
+        elif not self.dirty and not self.campaign_dirty:
+            self.apply_pending_navigation()
+
+    def queue_campaign_save(self) -> None:
+        if self.loaded_campaign and self.saver.save_campaign(
+            self.loaded_campaign, self.prompt.toPlainText(), self.wrapper.toPlainText()
+        ):
+            self.autosave_timer.stop()
+            self.max_save_timer.stop()
+            self.state.setText("Saving campaign changes…")
+
+    @Slot(str, object)
+    def campaign_saved(self, campaign_id: str, snapshot: tuple[str, str]) -> None:
+        if campaign_id == self.loaded_campaign:
+            self.campaign_snapshot = snapshot
+            self.campaign_dirty = (
+                self.prompt.toPlainText(),
+                self.wrapper.toPlainText(),
+            ) != snapshot
+            self.state.setText(
+                "Campaign changes saved"
+                if not self.campaign_dirty
+                else "More campaign edits are waiting to save"
+            )
+        if self.pending_close:
+            self.close()
+        elif (self.dirty or self.campaign_dirty) and self.autosave_toggle.isChecked():
+            self.autosave_timer.start()
+            self.max_save_timer.start()
+        elif not self.dirty and not self.campaign_dirty:
+            self.apply_pending_navigation()
+
+    @Slot(str, str)
+    def draft_failed(self, message_id: str, error: str) -> None:
+        self.pending_close = False
+        self.pending_navigation = None
+        self.state.setText(error)
+        self.autosave_timer.stop()
+        self.max_save_timer.stop()
+
+    def apply_pending_navigation(self) -> None:
+        pending, self.pending_navigation = self.pending_navigation, None
+        if pending is None:
+            return
+        kind, target = pending
+        if kind == "campaign":
+            index = self.campaign.findData(target)
+            if index >= 0:
+                self.campaign.setCurrentIndex(index)
+        else:
+            for row, message in enumerate(self.model.messages):
+                if message.id == target:
+                    index = self.proxy.mapFromSource(self.model.index(row, 0))
+                    if index.isValid():
+                        self.table.setCurrentIndex(index)
+                        if self.current_message is None or self.current_message.id != target:
+                            self.select_message()
+                    return
+
+    def confirm_unsaved(self) -> bool:
+        decision = QMessageBox.question(
+            self,
+            "Unsaved draft",
+            "Save this draft before leaving?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if decision == QMessageBox.StandardButton.Save:
+            if self.dirty:
+                self.save_draft()
+            if self.campaign_dirty:
+                self.save_campaign()
+            return not self.dirty and not self.campaign_dirty
+        if decision == QMessageBox.StandardButton.Discard:
+            if self.current_message:
+                self.store.release_edit(self.current_message.id)
+            self.dirty = False
+            self.campaign_dirty = False
+            self.prompt.blockSignals(True)
+            self.wrapper.blockSignals(True)
+            self.prompt.setPlainText(self.campaign_snapshot[0])
+            self.wrapper.setPlainText(self.campaign_snapshot[1])
+            self.prompt.blockSignals(False)
+            self.wrapper.blockSignals(False)
+            self.autosave_timer.stop()
+            self.max_save_timer.stop()
+            return True
+        return False
+
+    @Slot()
+    def save_behavior(self) -> None:
+        def save() -> None:
+            for key, toggle in (
+                ("editor.autosave", self.autosave_toggle),
+                ("appearance.smooth", self.smooth_toggle),
+                ("appearance.reduce_motion", self.motion_toggle),
+                ("pacing.jitter", self.jitter_toggle),
+            ):
+                self.store.save_preference(key, "true" if toggle.isChecked() else "false")
+
+        self.guard(save)
+        self.update_scrolling()
+        if self.autosave_toggle.isChecked() and (self.dirty or self.campaign_dirty):
+            self.autosave_timer.start()
+        elif not self.autosave_toggle.isChecked():
+            self.autosave_timer.stop()
+            self.max_save_timer.stop()
+
+    def update_scrolling(self) -> None:
+        for scroller in getattr(self, "scrollers", []):
+            scroller.enabled = self.smooth_toggle.isChecked() and not self.motion_toggle.isChecked()
+            if not scroller.enabled:
+                scroller.animation.stop()
+
+    @Slot(int)
+    def tab_changed(self, index: int) -> None:
+        if hasattr(self, "history_page") and self.tabs.widget(index) is self.history_page:
+            self.history_page.refresh()
+
+    def focus_search(self) -> None:
+        self.tabs.setCurrentIndex(0)
+        self.search.setFocus()
+
+    def keyboard_help(self) -> None:
+        QMessageBox.information(
+            self,
+            "Keyboard shortcuts",
+            "Ctrl+K  Command palette\nCtrl+S  Save draft\nCtrl+F  Find recipients\nF1  Keyboard help\nTab / Shift+Tab  Move between controls",
+        )
+
+    def command_palette(self) -> None:
+        choices = [
+            "Find recipients",
+            "Open sender accounts",
+            "Open settings",
+            "Open history",
+            "Preview current message",
+            "Review saved revisions",
+            "Keyboard help",
+            "Save campaign blueprint",
+            "Create campaign from blueprint",
+            "Save current recipient filter",
+            "Open saved recipient filter",
+            "Insert template variable",
+            "Setup checklist",
+            "Local runtime doctor",
+            "Preview support bundle",
+            "Open campaign tools",
+        ]
+        choice, ok = QInputDialog.getItem(
+            self, "Command palette", "Choose a safe workspace action", choices, 0, True
+        )
+        if not ok:
+            return
+        actions = {
+            choices[0]: self.focus_search,
+            choices[1]: lambda: self.tabs.setCurrentIndex(1),
+            choices[2]: lambda: self.tabs.setCurrentIndex(2),
+            choices[3]: lambda: self.tabs.setCurrentWidget(self.history_page),
+            choices[4]: self.preview_message,
+            choices[5]: self.show_revisions,
+            choices[6]: self.keyboard_help,
+            choices[7]: self.save_blueprint,
+            choices[8]: self.use_blueprint,
+            choices[9]: self.save_view,
+            choices[10]: self.open_view,
+            choices[11]: self.insert_variable,
+            choices[12]: self.setup_checklist,
+            choices[13]: self.show_doctor,
+            choices[14]: self.support_bundle,
+            choices[15]: lambda: self.tabs.setCurrentWidget(self.tools_page),
+        }
+        if choice in actions:
+            actions[choice]()
+
+    def text_dialog(self, title: str, text: str) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+        dialog.resize(720, 500)
+        layout = QVBoxLayout(dialog)
+        view = QPlainTextEdit(text)
+        view.setReadOnly(True)
+        layout.addWidget(view)
+        dialog.exec()
+
+    def show_doctor(self) -> None:
+        self.text_dialog("Local runtime doctor · read-only", json.dumps(diagnostics(), indent=2))
+
+    def setup_checklist(self) -> None:
+        senders = self.store.senders()
+        rows = (
+            self.store.messages(str(self.campaign.currentData()))
+            if self.campaign.currentData()
+            else []
+        )
+        self.text_dialog(
+            "Setup checklist",
+            "\n".join(
+                (
+                    f"{'✓' if senders else '○'} Sender account: configure under Sender accounts.",
+                    f"{'✓' if self.model_name.text().strip() else '○'} AI model: choose under Settings.",
+                    f"{'✓' if rows else '○'} Recipients: import a CSV or XLSX into a campaign.",
+                    f"{'✓' if any(row.body for row in rows) else '○'} Drafts: generate or write individual messages.",
+                    f"{'✓' if any(row.approval for row in rows) else '○'} Review: save and explicitly approve each revision.",
+                    "Rehearse without accounts using cold-mailer-desktop --demo.",
+                    "Credentials are checked when you request a provider operation. This checklist does not test them or guarantee delivery.",
+                )
+            ),
+        )
+
+    def support_bundle(self) -> None:
+        preview = json.dumps(support_preview(), indent=2)
+        self.text_dialog("Review exact support-bundle contents", preview)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save reviewed diagnostics locally", "", "ZIP (*.zip)"
+        )
+        if path:
+            self.guard(lambda: write_support_bundle(Path(path)))
+
+    def backup_encrypted(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "New encrypted backup · keep the passphrase separately",
+            "",
+            "Encrypted backup (*.cmbak)",
+        )
+        if not path:
+            return
+        passphrase, ok = QInputDialog.getText(
+            self,
+            "Encrypt backup",
+            "Passphrase (12+ characters). Lost passphrases cannot be recovered.",
+            QLineEdit.EchoMode.Password,
+        )
+        if not ok:
+            return
+        confirmation, ok = QInputDialog.getText(
+            self,
+            "Confirm backup passphrase",
+            "Re-enter the passphrase",
+            QLineEdit.EchoMode.Password,
+        )
+        if not ok or confirmation != passphrase:
+            self.state.setText("Backup cancelled: passphrases did not match.")
+            return
+        self.guard(
+            lambda: self.start(
+                lambda stop, emit: encrypted_backup(self.store, Path(path), passphrase)
+            )
+        )
+
+    def save_blueprint(self) -> None:
+        name, ok = QInputDialog.getText(self, "Save a new blueprint version", "Blueprint name")
+        if ok:
+            self.guard(
+                lambda: self.store.save_blueprint(
+                    name, self.prompt.toPlainText(), self.wrapper.toPlainText()
+                )
+            )
+
+    def use_blueprint(self) -> None:
+        rows = self.store.blueprints()
+        if not rows:
+            self.state.setText("Save a campaign blueprint first using Ctrl+K.")
+            return
+        names = [f"{row['name']} · version {row['version']}" for row in rows]
+        selected, ok = QInputDialog.getItem(
+            self,
+            "Choose blueprint",
+            "Review the recipe before generating any messages",
+            names,
+            0,
+            False,
+        )
+        if not ok or selected not in names:
+            return
+        row = rows[names.index(selected)]
+        self.text_dialog(
+            "Blueprint recipe · review supplied facts",
+            str(row["prompt"]) + "\n\n" + str(row["wrapper"]),
+        )
+        name, ok = QInputDialog.getText(self, "New campaign from blueprint", "Campaign name")
+        if ok:
+
+            def create() -> None:
+                key = self.store.create_campaign(name, str(row["prompt"]), str(row["wrapper"]))
+                self.refresh()
+                self.campaign.setCurrentIndex(self.campaign.findData(key))
+
+            self.guard(create)
+
+    def save_view(self) -> None:
+        name, ok = QInputDialog.getText(self, "Save recipient view", "View name")
+        if ok and name.strip():
+
+            def save() -> None:
+                views = json.loads(self.store.preference("views", "{}"))
+                views[name.strip()] = self.search.text()
+                self.store.save_preference("views", json.dumps(views))
+
+            self.guard(save)
+
+    def open_view(self) -> None:
+        def load() -> None:
+            views = json.loads(self.store.preference("views", "{}"))
+            if not views:
+                self.state.setText("Save a recipient filter using Ctrl+K first.")
+                return
+            name, ok = QInputDialog.getItem(
+                self,
+                "Saved recipient filters",
+                "Filter the visible list. Sending freezes this view's approved revisions.",
+                sorted(views),
+                0,
+                False,
+            )
+            if ok and name in views:
+                self.focus_search()
+                self.search.setText(views[name])
+
+        self.guard(load)
+
+    def insert_variable(self) -> None:
+        fields = set(self.current_message.contact if self.current_message else ())
+        fields.add("AI_GENERATED_BODY")
+        chosen, ok = QInputDialog.getItem(
+            self,
+            "Template variable dictionary",
+            "Insert a field into the campaign template. Missing values prevent generation.",
+            sorted(fields),
+            0,
+            False,
+        )
+        if ok and chosen in fields:
+            self.brief_toggle.setChecked(True)
+            self.brief_tabs.show()
+            self.brief_tabs.setCurrentIndex(0)
+            self.wrapper.insertPlainText("{{ " + chosen + " }}")
+            self.wrapper.setFocus()
+
+    def selected_message(self) -> Message | None:
+        return self.current_message
+
+    def editor_ready(self) -> bool:
+        return not self.dirty and self.saver.future is None and self.operation_thread is None
+
+    def preview_message(self) -> None:
+        if self.current_message is None:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Reading preview · approximate plain-text wrapping")
+        dialog.resize(850, 540)
+        layout = QVBoxLayout(dialog)
+        hints = quality_hints(self.subject.text(), self.body.toPlainText())
+        layout.addWidget(
+            label(
+                "\n".join(hints)
+                if hints
+                else "No length or placeholder warnings. Review facts and permission yourself."
+            )
+        )
+        columns = QHBoxLayout()
+        for width in (40, 72):
+            view = QPlainTextEdit(
+                reading_preview(self.subject.text(), self.body.toPlainText(), width)
+            )
+            view.setReadOnly(True)
+            view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+            columns.addWidget(view)
+        layout.addLayout(columns)
+        dialog.exec()
+
+    def regenerate(self) -> None:
+        def prepare() -> None:
+            if self.current_message is None or self.dirty or self.saver.future is not None:
+                raise ValidationError(
+                    "Select a recipient and save edits before generating a candidate."
+                )
+            generator = (
+                DemoGenerator() if self.application.demo else AIGenerator(self.network_settings())
+            )
+            message_id = self.current_message.id
+            self.start(
+                lambda stop, emit: self.application.service.candidate(message_id, generator, stop)
+            )
+
+        self.guard(prepare)
+
+    def show_revisions(self) -> None:
+        if self.current_message is None:
+            return
+        revisions = self.store.revisions(self.current_message.id)
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Saved revisions · read-only")
+        dialog.resize(720, 500)
+        layout = QVBoxLayout(dialog)
+        view = QPlainTextEdit()
+        view.setReadOnly(True)
+        view.setPlainText(
+            "\n\n──────────\n\n".join(
+                f"Revision {row['revision']} · {row['origin']}\n{row['subject']}\n\n{row['body']}\n\nInstructions: {row['instructions']}"
+                for row in revisions
+            )
+            or "No saved revisions yet."
+        )
+        layout.addWidget(view)
+        dialog.exec()
+
     def closeEvent(self, event: QCloseEvent) -> None:
+        self.pending_navigation = None
+        if self.saver.future is not None or (
+            (self.dirty or self.campaign_dirty) and self.autosave_toggle.isChecked()
+        ):
+            self.pending_close = True
+            self.autosave()
+            event.ignore()
+            return
         if self.operation_thread is not None:
             self.closing = True
             self.stop()
             event.ignore()
-        elif (
-            self.dirty
-            and QMessageBox.question(
-                self, "Unsaved edits", "Discard unsaved message edits and close?"
-            )
-            != QMessageBox.StandardButton.Yes
-        ):
+        elif (self.dirty or self.campaign_dirty) and not self.confirm_unsaved():
             event.ignore()
         else:
+            if self.current_message:
+                self.store.release_edit(self.current_message.id)
+            self.autosave_timer.stop()
+            self.max_save_timer.stop()
+            self.saver.shutdown()
+            self.history_page.shutdown()
             event.accept()
 
 
@@ -1051,6 +1801,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Cold Mailer desktop")
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--development", action="store_true")
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Use a temporary synthetic workspace with fake providers and no transmission",
+    )
     parser.add_argument(
         "--smoke-test",
         action="store_true",
@@ -1060,13 +1815,20 @@ def main(argv: list[str] | None = None) -> int:
         "--snapshot", type=Path, help="Save a UI snapshot during an explicit smoke test"
     )
     args = parser.parse_args(argv)
+    if args.demo and (args.data_dir or args.development):
+        parser.error("--demo uses its own temporary profile; omit --data-dir and --development")
     if args.smoke_test and args.data_dir is None:
         parser.error("--smoke-test requires an explicit --data-dir")
     if args.snapshot and not args.smoke_test:
         parser.error("--snapshot requires --smoke-test")
     qt = QApplication.instance() or QApplication([])
+    temporary = TemporaryDirectory(prefix="cold-mailer-demo-") if args.demo else None
+    if temporary:
+        args.data_dir = Path(temporary.name)
     try:
-        with Application(Settings.load(args.data_dir, development=args.development)) as application:
+        with Application(
+            Settings.load(args.data_dir, development=args.development), demo=args.demo
+        ) as application:
             window = Window(application)
             if not args.smoke_test:
                 window.show()
@@ -1080,6 +1842,9 @@ def main(argv: list[str] | None = None) -> int:
         if not args.smoke_test:
             QMessageBox.critical(None, "Cannot open profile", str(exc))
         return 2
+    finally:
+        if temporary:
+            temporary.cleanup()
 
 
 if __name__ == "__main__":

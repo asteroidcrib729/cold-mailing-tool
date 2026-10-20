@@ -8,6 +8,7 @@ from cold_mailer.bootstrap import Application
 from cold_mailer.domain.models import Status, ValidationError
 from cold_mailer.settings import Settings
 from cold_mailer.ui import window as app_ui
+from cold_mailer.ui.imports import ContactImportDialog
 from cold_mailer.ui.window import Window
 from tests.conftest import Rig
 
@@ -58,6 +59,9 @@ def test_complete_workbench_journey(
             QInputDialog, "getItem", lambda parent, title, label, items, *args: (items[0], True)
         )
         monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: (str(contacts), ""))
+        monkeypatch.setattr(
+            ContactImportDialog, "exec", lambda self: ContactImportDialog.DialogCode.Accepted
+        )
         window.import_contacts()
         qtbot.waitUntil(lambda: window.operation_thread is None, timeout=5000)
         assert len(app.store.messages(campaign)) == 1
@@ -185,11 +189,11 @@ def test_completion_waits_for_native_cleanup_without_blocking_close(
         assert thread is not None
         original_wait = thread.wait
         checks = []
+        authoring = window.tabs.widget(0)
+        assert authoring is not None
 
         def delayed_join(milliseconds: int) -> bool:
-            checks.append(
-                (milliseconds, window.operation_thread is thread, window.tabs.isEnabled())
-            )
+            checks.append((milliseconds, window.operation_thread is thread, authoring.isEnabled()))
             return False if len(checks) == 1 else original_wait(milliseconds)
 
         monkeypatch.setattr(thread, "wait", delayed_join)

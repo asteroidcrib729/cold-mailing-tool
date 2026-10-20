@@ -7,6 +7,7 @@ import json
 import sqlite3
 import sys
 from dataclasses import asdict, replace
+from datetime import datetime
 from getpass import getpass
 from pathlib import Path
 from threading import Event
@@ -14,9 +15,24 @@ from threading import Event
 from cold_mailer.bootstrap import Application
 from cold_mailer.domain.models import Sender, ValidationError, identifier
 from cold_mailer.infrastructure.ai import AIGenerator
+from cold_mailer.infrastructure.backup import encrypted_backup, restore_encrypted
 from cold_mailer.infrastructure.contacts import load_contacts
+from cold_mailer.infrastructure.doctor import diagnostics
+from cold_mailer.infrastructure.history import export_history
 from cold_mailer.infrastructure.storage import Store
 from cold_mailer.settings import VERSION, Settings
+
+
+def history_instant(value: str) -> float:
+    try:
+        instant = datetime.fromisoformat(value)
+        if instant.tzinfo is None:
+            raise ValueError
+        return instant.timestamp()
+    except ValueError, OverflowError:
+        raise argparse.ArgumentTypeError(
+            "Use an ISO-8601 timestamp with UTC Z or an offset."
+        ) from None
 
 
 def parser() -> argparse.ArgumentParser:
@@ -33,6 +49,23 @@ def parser() -> argparse.ArgumentParser:
     )
     commands = root.add_subparsers(dest="command", required=True)
     commands.add_parser("diagnostics")
+    commands.add_parser("doctor")
+    history = commands.add_parser("history")
+    history.add_argument("--query", default="")
+    history.add_argument(
+        "--outcome",
+        choices=["", "accepted", "retryable", "failed", "uncertain", "sending"],
+        default="",
+    )
+    history.add_argument("--limit", type=int, default=100)
+    history.add_argument("--offset", type=int, default=0)
+    history.add_argument("--export", type=Path)
+    history.add_argument(
+        "--since", type=history_instant, help="Inclusive ISO-8601 instant with offset"
+    )
+    history.add_argument(
+        "--until", type=history_instant, help="Exclusive ISO-8601 instant with offset"
+    )
     commands.add_parser("campaigns")
     create = commands.add_parser("create")
     create.add_argument("name")
@@ -69,15 +102,39 @@ def parser() -> argparse.ArgumentParser:
     suppress.add_argument("email")
     backup = commands.add_parser("backup")
     backup.add_argument("destination", type=Path)
+    backup.add_argument("--encrypted", action="store_true")
     restore = commands.add_parser("restore")
     restore.add_argument("source", type=Path)
     restore.add_argument("destination", type=Path)
+    restore.add_argument("--encrypted", action="store_true")
     return root
 
 
 def execute(args: argparse.Namespace, application: Application) -> tuple[object, int]:
     store = application.store
     match args.command:
+        case "doctor":
+            return diagnostics(), 0
+        case "history":
+            if args.export:
+                return {
+                    "exported": export_history(
+                        store,
+                        args.export,
+                        args.query,
+                        args.outcome,
+                        since=args.since,
+                        until=args.until,
+                    )
+                }, 0
+            return store.history(
+                args.query,
+                args.outcome,
+                limit=args.limit,
+                offset=args.offset,
+                since=args.since,
+                until=args.until,
+            ), 0
         case "diagnostics":
             return {
                 "version": VERSION,
@@ -175,10 +232,18 @@ def execute(args: argparse.Namespace, application: Application) -> tuple[object,
             store.suppress(args.email)
             return {"suppressed": True}, 0
         case "backup":
-            store.backup(args.destination)
+            if args.encrypted:
+                encrypted_backup(
+                    store, args.destination, getpass("Backup passphrase (12+ characters): ")
+                )
+            else:
+                store.backup(args.destination)
             return {"backup": str(args.destination)}, 0
         case "restore":
-            Store.restore(args.source, args.destination)
+            if args.encrypted:
+                restore_encrypted(args.source, args.destination, getpass("Backup passphrase: "))
+            else:
+                Store.restore(args.source, args.destination)
             return {
                 "restored": str(args.destination),
                 "pending_messages_held_uncertain": True,
@@ -190,6 +255,9 @@ def execute(args: argparse.Namespace, application: Application) -> tuple[object,
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
+        if args.command == "doctor":
+            print(json.dumps(diagnostics(), indent=2))
+            return 0
         settings = Settings.load(args.data_dir, development=args.development, network=args.live)
         with Application(settings) as application:
             result, code = execute(args, application)
