@@ -1,0 +1,91 @@
+name: Windows preview installers
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional existing vMAJOR.MINOR.PATCH tag; blank builds the selected branch'
+        required: false
+        default: ''
+        type: string
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: installers-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  preview:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      QT_QPA_PLATFORM: offscreen
+      UV_CACHE_DIR: .uv-cache
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          version: '0.12.9'
+      - name: Resolve source and validate tag/version
+        id: source
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          if ($env:GITHUB_REF.StartsWith('refs/tags/')) { $tag = $env:GITHUB_REF_NAME }
+          python scripts/release_metadata.py --release-tag "$tag" --output "$env:RUNNER_TEMP/release-metadata.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Source resolution failed.' }
+          $metadata = Get-Content -Raw "$env:RUNNER_TEMP/release-metadata.json" | ConvertFrom-Json
+          "sha=$($metadata.source_sha)" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version-file: .python-version
+      - name: Verify source
+        shell: pwsh
+        run: |
+          uv sync --locked --all-groups
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency synchronization failed.' }
+          ./scripts/verify.ps1 -Mode Fast
+          uv run --locked --all-groups pytest -q --cov --cov-report=json:reports/coverage.json --junitxml=reports/installer-tests.xml
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
+          uv run --locked python scripts/check_coverage.py
+          if ($LASTEXITCODE -ne 0) { throw 'Coverage failed.' }
+      - name: Build application and preview installers
+        shell: pwsh
+        run: |
+          Copy-Item -LiteralPath "$env:RUNNER_TEMP/release-metadata.json" -Destination reports/release-metadata.json
+          ./scripts/build_desktop.ps1
+          ./scripts/install_inno.ps1
+          ./scripts/package_windows.ps1 -Format Both
+          uv run --locked python -m scripts.check_windows_artifacts
+          if ($LASTEXITCODE -ne 0) { throw 'Artifact identity verification failed.' }
+          ./scripts/smoke_installer.ps1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cold-mailer-windows-unsigned-preview-${{ steps.source.outputs.sha }}
+          path: dist/installers/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: installer-verification-results
+          path: |
+            reports/installer-tests.xml
+            reports/installer-smoke.json
+            reports/windows-artifact-verification.json
+            reports/exe-packaging.log
+            reports/msix-packaging.log
+          retention-days: 14

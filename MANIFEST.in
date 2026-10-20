@@ -4,6 +4,8 @@ recursive-include tests *.py
 recursive-include scripts *.py *.ps1
 recursive-include examples *.csv
 recursive-include development-plans *.md
+recursive-include packaging *.md *.iss
+recursive-include .github *.yml
 prune .git
 prune .venv
 prune .uv-cache

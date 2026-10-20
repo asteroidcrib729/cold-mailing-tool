@@ -6,9 +6,10 @@ code lives in the installable `src/cold_mailer/` package. My
 [Plan 01](development-plans/development-plan-01.md) is complete as the foundation
 phase. My active [Plan 02](development-plans/development-plan-02.md) contains new
 feature requirements and all transferred unfinished work. The
-[execution record](development-plans/execution-01.md) preserves verified baseline
-evidence, and [feature proposals](development-plans/features-and-improvements.md)
-remain separate from approved implementation scope.
+[first execution record](development-plans/execution-01.md) preserves baseline
+evidence. [Execution 03](development-plans/execution-03.md) tracks the current
+implementation and remaining acceptance work, including the now-authorized
+[additional features](development-plans/features-and-improvements.md).
 
 ## Repository structure
 
@@ -40,6 +41,40 @@ write manual drafts or generate them using an explicitly selected Gemini model,
 review the exact final message, and approve each revision. Editing content or a
 sender invalidates pending approvals. Accepted and uncertain messages are immutable.
 
+Messages and campaign briefs/templates autosave in the background by default,
+including incomplete drafts and recipient-specific instructions. I can turn
+autosave off under Settings. The first
+edit removes approval before the debounce window; every later send requires review
+and approval again. Saved revisions are available from the editor. Navigation waits
+for a save acknowledgment before switching recipients or campaigns, then replays
+the requested navigation. Manual mode offers Save/Discard/Cancel. Save failures retain the
+editor text for retry or copying.
+
+The History tab keeps exact sender/recipient/content snapshots for every new
+transport attempt, with outcome filters, background search, pagination, local-date
+filters, configurable display timezone, and formula-protected UTC CSV exports.
+CLI filters accept `--since` / `--until` ISO-8601 instants with explicit offsets.
+Existing profiles migrate to schema v3 with a pre-upgrade
+backup. Old attempts without snapshots remain marked unknown. The database stays
+in rollback journal mode pending verification of a patched SQLite WAL runtime.
+
+Optional additive jitter samples a value in `[0,1)` seconds after each attempt.
+The next due time is saved, so restarting does not resample the interval. Real
+SMTP enforces at least five seconds after the previous completion, plus jitter;
+longer sender intervals still apply. This pacing does not guarantee delivery or
+avoid filtering. AI generation uses at most two concurrent requests; SMTP remains
+serialized. Settings and History remain usable during provider operations.
+
+Contact import now previews columns and sample values, saves reusable mappings,
+records source/review notes, and refuses a source changed after preview. Sending
+freezes the visible audience and its approved revisions; later imports or edits
+cannot expand a run. **Campaign tools** provides optional timezone/weekday sending
+windows, persistent request budgets, source review, revision comparison/restore,
+local reply-file review, outcome reports, backup restoration, and separate workspace
+opening. Sending windows hold messages for a later explicit run; they do not send
+automatically. Request costs use my optional planning value and are not billing
+guarantees. Local EML feedback requires review and does not connect to an inbox.
+
 The shared GUI/CLI engine journals attempts before transmission, enforces sender
 pacing and rolling daily limits, checks suppression, supports cancellation, and
 recovers interrupted attempts as uncertain. A repeated run does not replay accepted
@@ -48,7 +83,7 @@ are eligible only after the retry delay and an explicit later run. There is no
 unattended retry scheduler or background auto-send.
 
 This is an early development build. Hosted CI, real-provider seed tests, signing,
-clean-machine upgrades, complete schema migrations, and production acceptance are
+clean-machine upgrades, remaining schema/fault acceptance, and production acceptance are
 still open. Historical secrets require rotation and a coordinated history rewrite.
 
 ## Development setup
@@ -70,12 +105,49 @@ For a separate profile:
 uv --cache-dir .uv-cache run --locked cold-mailer-desktop --data-dir C:\Temp\ColdMailer-Demo
 ```
 
+For a completely synthetic rehearsal with fake AI/SMTP and no credentials:
+
+```powershell
+uv --cache-dir .uv-cache run --locked cold-mailer-desktop --demo
+```
+
+Demo uses a temporary profile, disables live access, and deletes its synthetic data
+when closed. Simulated acceptance is clearly labelled and transmits no email.
+
 ## Desktop workflow
 
-I can choose **System**, **Light**, or **Dark** from the header's **Theme** selector
+I can choose **System**, **Light**, **Dark**, or **Contrast** from the header's **Theme** selector
 or **Settings > Appearance**. Changes apply immediately and persist in the current
 profile. System follows the operating system's appearance. Theme changes preserve
 unsaved drafts and never enable network access.
+
+Settings also contains smooth-scrolling and reduced-motion toggles. Mouse wheels
+use a short eased animation; native pixel-based touchpad events retain their normal
+behavior. **Commands** or **Ctrl+K** opens blueprint, saved-filter, variable-picker,
+checklist, history, and diagnostic actions. **Ctrl+S** saves, **Ctrl+F** finds
+recipients, and **F1** shows keyboard help. Editor previews show approximate narrow
+and wide plain-text wrapping with deterministic quality hints. **New candidate**
+generates for only the selected recipient and preserves the current draft until
+I explicitly accept the candidate.
+
+Settings offers encrypted backups with an authenticated, versioned AES-GCM format.
+I keep the passphrase separately: it cannot be recovered. OS-stored passwords and
+API keys are excluded from both plaintext and encrypted database backups. Support
+bundles show the exact allowlisted local diagnostics before saving, exclude paths,
+messages, contacts and credentials, and are never uploaded automatically.
+
+```powershell
+uv --cache-dir .uv-cache run --locked cold-mailer doctor
+uv --cache-dir .uv-cache run --locked cold-mailer history --outcome accepted
+uv --cache-dir .uv-cache run --locked cold-mailer history --query example.com --export C:\Temp\mail-history.csv
+uv --cache-dir .uv-cache run --locked cold-mailer backup C:\Temp\campaigns.cmbak --encrypted
+uv --cache-dir .uv-cache run --locked cold-mailer restore C:\Temp\campaigns.cmbak C:\Temp\RestoredProfile\campaigns.sqlite3 --encrypted
+```
+
+Exports and backups contain private mail data. Export/restore destinations must be
+new files; restored pending work is held uncertain and cannot replay automatically.
+The [Windows packaging guide](packaging/windows/README.md) covers the EXE installer,
+unsigned MSIX preview, CI inputs, checksums, and remaining signing/install gates.
 
 The campaign workspace uses resizable recipient/editor panels. Smaller windows
 scroll instead of shrinking fields or hiding button text. **Brief and activity**
@@ -88,7 +160,9 @@ operation starts. Sender accounts and Settings use separate, scrollable cards.
 2. In **Campaigns**, create a campaign and import CSV/XLSX contacts. The
    [example CSV](examples/contacts.example.csv) contains synthetic data and reserved
    example addresses; it is not a live recipient list. Legacy `.xls` is unsupported.
-   Choose one sender or explicitly rotate new contacts across all sender accounts.
+   Review the header mapping and sample rows, optionally save the mapping, and
+   record source notes before accepting. Choose one sender or explicitly rotate
+   new contacts across all sender accounts.
    The sender assignment is stored before review; rotation respects each account's
    pacing and daily limits rather than bypassing them.
 3. Open **Brief and activity**, enter the brief/template, and save the campaign. In **Settings**,
@@ -102,6 +176,8 @@ operation starts. Sender accounts and Settings use separate, scrollable cards.
    prove credentials, deliverability, or future quota availability. The send path
    rechecks approvals, suppression, attempt budgets, and pacing.
 7. **Send approved** requires live access and a visible confirmation.
+   The frozen audience contains the currently visible recipients. Optional sending
+   windows, quotas, approval, and suppression are rechecked at each claim.
    **Stop operation** requests cooperative stop; in-flight I/O has a 30-second
    timeout. The UI remains available for stop/close while worker operations finish.
 8. Inspect message states after the operation. SMTP acceptance is not confirmed
@@ -111,6 +187,13 @@ operation starts. Sender accounts and Settings use separate, scrollable cards.
 Settings also supports suppression, bounded SPF/DMARC presence diagnostics, and
 database backups. DNS presence is not a validity or deliverability guarantee.
 Detailed UI operation logs are bounded and session-only; attempt outcomes persist.
+
+In **Campaign tools**, **Review a local reply file** accepts a bounded `.eml` file.
+I review the content and choose reply, opt-out, or note. Linking a reply/opt-out
+requires the recipient From and original Message-ID references; it does not prove
+authorship. An explicitly recorded opt-out suppresses pending mail to that address.
+**Restore a backup** requires a new empty workspace and holds restored pending
+work. Opening that workspace starts a separate instance without copying credentials.
 
 ## Command line
 

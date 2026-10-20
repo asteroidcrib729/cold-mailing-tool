@@ -2,10 +2,13 @@
 
 Date: 2026-10-19 (Asia/Karachi).
 
-Status: active planning draft. Requirements are open for additions while the owner
-considers further features. This document specifies future implementation; the
-new scrolling, history, timing, autosave, concurrency, and installer work is not
-claimed implemented by this documentation change. No commit or push is requested.
+Status: active implementation. The owner authorized autonomous implementation of
+this plan and the additional feature backlog on 2026-10-19. Requirements remain
+open for additions. [Execution 03](execution-03.md) records current implementation,
+verification, remaining local work, and owner-dependent release gates;
+[Execution 02](execution-02.md) retains the preceding baseline. Unchecked tasks below remain
+open unless that execution record explicitly establishes their acceptance.
+No commit, push, or history rewrite is authorized in this implementation phase.
 
 Plan 01 is complete as a closed foundation phase. Its unfinished obligations are
 transferred here without being marked implemented. See the

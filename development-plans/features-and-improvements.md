@@ -2,9 +2,11 @@
 
 Date: 2026-10-19 (Asia/Karachi).
 
-Status: proposals for owner consideration, not approved implementation scope.
-The owner can add, reject, combine, or reprioritize ideas while
-[Development Plan 02](development-plan-02.md) is being refined.
+Status: the owner authorized implementation of these ideas on 2026-10-19.
+Delivery remains incremental. [Execution 03](execution-03.md) records which
+capabilities are implemented, partially implemented, or still pending. The
+unchecked acceptance checklists below are retained until each full criterion is
+verified; authorization alone does not establish completion.
 
 The requested smooth scrolling, durable SQLite history, individualized messages,
 additive pacing jitter, autosave toggles, concurrency, and EXE/MSIX workflows are
@@ -16,8 +18,8 @@ to the existing requirement instead of creating conflicting duplicate tasks.
 
 Priority describes suggested value, not a delivery promise. Effort is relative:
 S is localized, M crosses a subsystem, and L involves integration or several
-subsystems. Validate effort after design. Every proposal remains unchecked until
-the owner decides whether it belongs in the active plan.
+subsystems. Validate effort after design. Check completion only against the
+acceptance criterion and recorded evidence.
 
 For promotion, add a Plan 02 requirement ID, concrete user story, dependency,
 privacy/security impact, data migration impact, owner, acceptance test, and
@@ -249,19 +251,22 @@ or contact external services simply because an idea appears in this file.
 - Effort: S/M. Dependency: existing verifier and packaging scripts. Main risk:
   confusing diagnostics with certification; show observed versions and explicit gaps.
 
-## Suggested shortlist for the next scope discussion
+## Current implementation and next scope discussion
 
-Start by considering FI-01 (demo workspace), FI-02 (import mapping), FI-05 (command
-palette), FI-08 (guided setup), and FI-11 (variable picker). They make the existing
-workflow easier to understand without requiring mailbox integration or a new
-distribution service. This is a proposed discussion order, not authorization to
-implement them before the owner finishes the feature list.
+The owner has authorized these features. Demo, reviewed mapping, commands, setup
+guidance, variables, source records, frozen audiences, time windows, budgets,
+offline feedback, reports, GUI backup restore, workspace opening, and contrast
+presentation now have implemented surfaces. Full acceptance remains incremental;
+the execution records distinguish delivery from remaining criteria. Next local
+work includes contact merge, structured segments, safe local recipes, font/density
+controls, and the general job coordinator. Inbox authorization and trusted updates
+depend on the owner/account/release decisions listed in Execution 03.
 
 ## Decision log template
 
 | Proposal | Owner decision | Reason | Plan requirement / acceptance | Status |
 | --- | --- | --- | --- | --- |
-| FI-01 through FI-24 | Awaiting review | Owner is considering further features. | Promote individually when selected. | Proposed |
+| FI-01 through FI-24 | Autonomous implementation authorized | Owner requested implementation on 2026-10-19 and continuation on 2026-10-20. | Preserve each acceptance criterion above; record partial delivery individually. | Incremental; see Execution 03. |
 
 Keep future ideas in this file until selected. Record rejected/deferred ideas with
 their rationale so they are not repeatedly reintroduced as unfinished obligations.
