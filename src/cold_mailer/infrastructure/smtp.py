@@ -53,7 +53,7 @@ class SMTPTransport:
     def preflight(self) -> None:
         self.settings.require_network()
 
-    def send(self, sender: Sender, password: str, message: Message) -> SendResult:
+    def send(self, sender: Sender, credential: str, message: Message) -> SendResult:
         self.settings.require_network()
         sender.validate()
         mail = compose(sender, message)
@@ -70,7 +70,7 @@ class SMTPTransport:
                 server.ehlo()
                 server.starttls(context=context)
                 server.ehlo()
-            server.login(sender.username, password)
+            server.login(sender.username, credential)
             phase = "data"
             refused = server.send_message(
                 mail, from_addr=sender.email, to_addrs=[message.recipient]

@@ -2,6 +2,11 @@
 
 Date: 2026-10-19 (Asia/Karachi).
 
+Account scope update, 2026-10-20: [Plan 03](development-plan-03.md) restricts
+production sending to explicit personal Gmail or Microsoft Outlook OAuth grants.
+Ideas involving generic SMTP, passwords, organizational tenants, company providers,
+or shared/delegated mailboxes are outside the current implementation scope.
+
 Status: the owner authorized implementation of these ideas on 2026-10-19.
 Delivery remains incremental. [Execution 03](execution-03.md) records which
 capabilities are implemented, partially implemented, or still pending. The

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from cold_mailer.domain.models import ValidationError, validate_content
+from cold_mailer.domain.models import GenerationFailure, ValidationError, validate_content
 from cold_mailer.settings import Settings
 
 
@@ -55,7 +55,6 @@ class AIGenerator:
             return validate_content(data["subject"], data["body"])
         except ValidationError:
             raise
-        except Exception:
-            raise ValidationError(
-                "AI generation failed. Check model, credentials, quota, or connectivity; no content was approved."
-            ) from None
+        except Exception as exc:
+            status = getattr(exc, "code", None)
+            raise GenerationFailure(status if type(status) is int else None) from None

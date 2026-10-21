@@ -20,6 +20,9 @@ class Settings:
     api_key: str = field(default="", repr=False)
     network: bool = False
     timeout: float = 30
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = field(default="", repr=False)
+    microsoft_oauth_client_id: str = ""
 
     @classmethod
     def load(
@@ -37,6 +40,9 @@ class Settings:
                 or (os.getenv("API_KEY", "") if development else "")
             ),
             network=network,
+            google_oauth_client_id=os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip(),
+            google_oauth_client_secret=os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip(),
+            microsoft_oauth_client_id=os.getenv("MICROSOFT_OAUTH_CLIENT_ID", "").strip(),
         )
 
     def require_network(self) -> None:

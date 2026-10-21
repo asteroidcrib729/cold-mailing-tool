@@ -95,7 +95,9 @@ class Organization:
                 )
             ]
 
-    def finish_run(self, run_id: str, summary: dict[str, object], state: str = "finished") -> None:
+    def finish_run(
+        self, run_id: str, summary: dict[str, int | bool], state: str = "finished"
+    ) -> None:
         with self.store.connection() as conn:
             conn.execute(
                 "UPDATE frozen_runs SET state=?,finished_us=?,summary=? WHERE id=? AND state IN ('prepared','running')",

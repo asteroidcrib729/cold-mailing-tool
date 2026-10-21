@@ -2,7 +2,7 @@
 
 import sqlite3
 
-VERSION = 3
+VERSION = 4
 
 UPGRADE_2 = """
 ALTER TABLE messages ADD COLUMN created_us INTEGER;
@@ -63,11 +63,22 @@ CREATE INDEX attempts_message ON attempts(message_id);
 """
 
 
+UPGRADE_4 = """
+ALTER TABLE senders ADD COLUMN provider TEXT NOT NULL DEFAULT '';
+ALTER TABLE senders ADD COLUMN subject TEXT NOT NULL DEFAULT '';
+UPDATE messages SET status='draft', approval=NULL, revision=revision+1
+ WHERE status IN ('approved','retryable');
+"""
+
+
 def migrate(connection: sqlite3.Connection, version: int) -> None:
     if version == 1:
         connection.executescript("BEGIN IMMEDIATE;" + UPGRADE_2 + "PRAGMA user_version=2; COMMIT;")
         version = 2
     if version == 2:
         connection.executescript("BEGIN IMMEDIATE;" + UPGRADE_3 + "PRAGMA user_version=3; COMMIT;")
+        version = 3
+    if version == 3:
+        connection.executescript("BEGIN IMMEDIATE;" + UPGRADE_4 + "PRAGMA user_version=4; COMMIT;")
     if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
         raise sqlite3.DatabaseError("Profile integrity check failed")

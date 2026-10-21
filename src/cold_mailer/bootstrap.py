@@ -13,7 +13,8 @@ from cold_mailer.domain.models import ValidationError
 from cold_mailer.domain.ports import CredentialStore
 from cold_mailer.infrastructure.credentials import MemoryCredentials, OSKeyring
 from cold_mailer.infrastructure.demo import DemoTransport, populate
-from cold_mailer.infrastructure.smtp import SMTPTransport
+from cold_mailer.infrastructure.oauth_accounts import OAuthAccounts
+from cold_mailer.infrastructure.oauth_mail import OAuthMailTransport
 from cold_mailer.infrastructure.storage import Store
 from cold_mailer.settings import Settings
 
@@ -38,8 +39,9 @@ class Application:
             self.credentials: CredentialStore = OSKeyring(
                 hashlib.sha256(str(self.settings.data_dir).encode()).hexdigest()
             )
+            self.accounts = OAuthAccounts(self.settings, self.store, self.credentials)
             self.service = CampaignService(
-                self.store, self.credentials, SMTPTransport(self.settings)
+                self.store, self.credentials, OAuthMailTransport(self.settings, self.accounts)
             )
             if self.demo:
                 if self.store.campaigns() or self.store.senders():

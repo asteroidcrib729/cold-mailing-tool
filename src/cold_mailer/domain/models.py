@@ -14,6 +14,40 @@ class ValidationError(ValueError):
     """An actionable input or state error, safe for the user interface."""
 
 
+class GenerationFailure(ValidationError):
+    """Fixed provider-status diagnostics that never embed response text or credentials."""
+
+    def __init__(self, status_code: int | None = None) -> None:
+        self.status_code = (
+            status_code if type(status_code) is int and 100 <= status_code <= 599 else None
+        )
+        code = self.status_code
+        if code in {401, 403}:
+            detail = "Check the API key, project permissions and API restrictions."
+        elif code == 402:
+            detail = "Check the project's billing status and available credits."
+        elif code == 404:
+            detail = "The selected model is unavailable to this project. Check its exact model ID."
+        elif code == 429:
+            detail = "The provider request/quota limit was reached. Check quota or billing before retrying."
+        elif code in {408, 504}:
+            detail = "The provider request timed out. Retry explicitly later."
+        elif code is not None and 500 <= code <= 599:
+            detail = "The provider is temporarily unavailable. Retry explicitly later."
+        elif code == 400:
+            detail = (
+                "The provider rejected the request. Check model capabilities and configuration."
+            )
+        else:
+            detail = "Check the model, credentials, quota or connectivity."
+        prefix = (
+            f"AI generation failed (HTTP {code}). "
+            if code is not None
+            else "AI generation failed. "
+        )
+        super().__init__(prefix + detail + " No generated content was approved.")
+
+
 class Status(StrEnum):
     DRAFT = "draft"
     APPROVED = "approved"
@@ -88,9 +122,27 @@ class Sender:
     tls: str = "starttls"
     daily_limit: int = 50
     interval: float = 30
+    provider: str = ""
+    subject: str = ""
 
     def validate(self) -> None:
         address(self.email)
+        if self.provider:
+            if (
+                self.provider not in {"google", "microsoft"}
+                or not self.subject
+                or len(self.subject) > 255
+            ):
+                raise ValidationError(
+                    "Connect a personal Google or Microsoft account by signing in."
+                )
+            if self.username != self.email:
+                raise ValidationError("Sender identity must match the signed-in account.")
+            if self.provider == "google" and self.email.rsplit("@", 1)[1] not in {
+                "gmail.com",
+                "googlemail.com",
+            }:
+                raise ValidationError("Only personal Gmail accounts are supported.")
         header(self.username, "Username")
         if not re.fullmatch(r"[A-Za-z0-9.-]+", self.host) or not 1 <= self.port <= 65535:
             raise ValidationError("Enter a valid SMTP hostname and port (1-65535).")
@@ -123,6 +175,7 @@ class Message:
 class SendResult:
     outcome: Outcome
     code: str
+    retry_after: float = 0
 
 
 @dataclass

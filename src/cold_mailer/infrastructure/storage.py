@@ -108,7 +108,7 @@ class Store:
             ).fetchone():
                 raise ValidationError("Cannot edit a sender while a message is in flight.")
             conn.execute(
-                "INSERT INTO senders VALUES (:id,:email,:host,:port,:username,:tls,:daily_limit,:interval) ON CONFLICT(id) DO UPDATE SET email=excluded.email,host=excluded.host,port=excluded.port,username=excluded.username,tls=excluded.tls,daily_limit=excluded.daily_limit,interval=excluded.interval",
+                "INSERT INTO senders VALUES (:id,:email,:host,:port,:username,:tls,:daily_limit,:interval,:provider,:subject) ON CONFLICT(id) DO UPDATE SET email=excluded.email,host=excluded.host,port=excluded.port,username=excluded.username,tls=excluded.tls,daily_limit=excluded.daily_limit,interval=excluded.interval,provider=excluded.provider,subject=excluded.subject",
                 asdict(sender),
             )
             conn.execute(
@@ -135,6 +135,19 @@ class Store:
             ).fetchone():
                 raise ValidationError("This sender has campaign history and cannot be deleted.")
             conn.execute("DELETE FROM senders WHERE id=?", (sender_id,))
+
+    def hold_sender(self, sender_id: str) -> None:
+        """Disconnecting never changes accepted/uncertain history or an in-flight attempt."""
+        with self.connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "INSERT INTO preferences(key,value) VALUES (?,'false') ON CONFLICT(key) DO UPDATE SET value='false'",
+                ("oauth.connected." + sender_id,),
+            )
+            conn.execute(
+                "UPDATE messages SET status='draft',approval=NULL,revision=revision+1 WHERE sender_id=? AND status IN ('draft','approved','retryable','failed')",
+                (sender_id,),
+            )
 
     def create_campaign(
         self, name: str, prompt: str = "", wrapper: str = "{{ AI_GENERATED_BODY }}"

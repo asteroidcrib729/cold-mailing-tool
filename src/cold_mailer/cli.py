@@ -13,7 +13,7 @@ from pathlib import Path
 from threading import Event
 
 from cold_mailer.bootstrap import Application
-from cold_mailer.domain.models import Sender, ValidationError, identifier
+from cold_mailer.domain.models import ValidationError
 from cold_mailer.infrastructure.ai import AIGenerator
 from cold_mailer.infrastructure.backup import encrypted_backup, restore_encrypted
 from cold_mailer.infrastructure.contacts import load_contacts
@@ -69,13 +69,11 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("campaigns")
     create = commands.add_parser("create")
     create.add_argument("name")
-    sender = commands.add_parser("add-sender")
-    for field in ("email", "host", "username"):
-        sender.add_argument("--" + field, required=True)
-    sender.add_argument("--port", type=int, default=587)
-    sender.add_argument("--tls", choices=["starttls", "tls"], default="starttls")
-    sender.add_argument("--daily-limit", type=int, default=50)
-    sender.add_argument("--interval", type=float, default=30)
+    connect = commands.add_parser("connect-account", help="Sign in in your system browser")
+    connect.add_argument("provider", choices=["google", "microsoft"])
+    connect.add_argument("--sender", help="Reconnect an existing sender using the same identity")
+    disconnect = commands.add_parser("disconnect-account")
+    disconnect.add_argument("sender")
     commands.add_parser("senders")
     contacts = commands.add_parser("import")
     contacts.add_argument("campaign")
@@ -151,23 +149,12 @@ def execute(args: argparse.Namespace, application: Application) -> tuple[object,
             return store.campaigns(), 0
         case "senders":
             return [asdict(sender) for sender in store.senders()], 0
-        case "add-sender":
-            sender = Sender(
-                identifier(),
-                args.email,
-                args.host,
-                args.port,
-                args.username,
-                args.tls,
-                args.daily_limit,
-                args.interval,
-            )
-            sender.validate()
-            application.credentials.set(
-                sender.id, getpass("SMTP password (stored in OS keyring): ")
-            )
-            store.save_sender(sender)
+        case "connect-account":
+            sender = application.accounts.connect(args.provider, Event(), args.sender)
             return {"sender": sender.id}, 0
+        case "disconnect-account":
+            application.accounts.disconnect(args.sender)
+            return {"disconnected": args.sender}, 0
         case "import":
             report = load_contacts(args.file, store.suppressed())
             count = store.add_contacts(
