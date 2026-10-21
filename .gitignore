@@ -32,7 +32,7 @@ secret.key
 /data/
 /logs/
 /reports/
-/Load Contacts.csv
+/.git-ignored/
 
 # Superseded distributions and operating-system clutter
 /!APP_VERSIONS/
