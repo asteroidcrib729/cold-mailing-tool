@@ -117,9 +117,7 @@ def test_controls_keep_usable_geometry_on_every_page(
                 [window.subject, window.body]
                 if page == 0
                 else [
-                    *window.sender_fields.values(),
-                    window.port,
-                    window.tls,
+                    window.sender_email,
                     window.limit,
                     window.interval,
                 ]
@@ -134,7 +132,7 @@ def test_controls_keep_usable_geometry_on_every_page(
             )
             for control in controls:
                 assert control.height() >= 38
-            for combo in (window.theme_selector, window.campaign, window.senders, window.tls):
+            for combo in (window.theme_selector, window.campaign, window.senders):
                 option = QStyleOptionComboBox()
                 option.initFrom(combo)
                 arrow = combo.style().subControlRect(
@@ -167,7 +165,8 @@ def test_dropdown_arrows_spin_buttons_and_live_checkbox_work(qtbot, tmp_path: Pa
         window.tabs.setCurrentIndex(1)
         window.show()
         QApplication.processEvents()
-        combo = window.tls
+        combo = window.theme_selector
+        combo.setCurrentIndex(0)
         option = QStyleOptionComboBox()
         option.initFrom(combo)
         arrow = combo.style().subControlRect(
@@ -177,8 +176,8 @@ def test_dropdown_arrows_spin_buttons_and_live_checkbox_work(qtbot, tmp_path: Pa
         qtbot.waitUntil(lambda: combo.view().isVisible())
         qtbot.keyClick(combo, Qt.Key.Key_Down)
         qtbot.keyClick(combo, Qt.Key.Key_Return)
-        assert combo.currentText() == "tls"
-        spin = window.port
+        assert combo.currentIndex() == 1
+        spin = window.limit
         assert spin.lineEdit().textMargins().left() >= 8
         option_spin = QStyleOptionSpinBox()
         spin.initStyleOption(option_spin)
@@ -186,7 +185,7 @@ def test_dropdown_arrows_spin_buttons_and_live_checkbox_work(qtbot, tmp_path: Pa
             QStyle.ComplexControl.CC_SpinBox, option_spin, QStyle.SubControl.SC_SpinBoxUp, spin
         )
         qtbot.mouseClick(spin, Qt.MouseButton.LeftButton, pos=up.center())
-        assert spin.value() == 588
+        assert spin.value() == 51
         qtbot.mouseClick(window.live, Qt.MouseButton.LeftButton)
         assert window.live.isChecked()
         assert window.mode_badge.property("live") is True

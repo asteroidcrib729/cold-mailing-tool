@@ -20,7 +20,7 @@ class DemoTransport:
     def preflight(self) -> None:
         pass
 
-    def send(self, sender: Sender, password: str, message: Message) -> SendResult:
+    def send(self, sender: Sender, credential: str, message: Message) -> SendResult:
         return SendResult(Outcome.ACCEPTED, "demo_simulated_no_transmission")
 
 

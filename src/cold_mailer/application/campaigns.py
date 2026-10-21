@@ -11,6 +11,7 @@ from threading import Event
 from filelock import FileLock, Timeout
 
 from cold_mailer.domain.models import (
+    GenerationFailure,
     Message,
     Outcome,
     RunSummary,
@@ -160,9 +161,13 @@ class CampaignService:
                     raise
                 summary.generated += 1
                 emit("Draft generated; review and approve before sending.")
-            except ValidationError:
+            except ValidationError as exc:
                 summary.failed += 1
-                emit("Generation failed for a draft; it remains unapproved.")
+                emit(
+                    str(exc)
+                    if isinstance(exc, GenerationFailure)
+                    else "Generation failed for a draft; it remains unapproved."
+                )
         return summary
 
     def _parallel_generate(
@@ -184,7 +189,7 @@ class CampaignService:
         eligible = eligible[:available]
         run_id = identifier()
 
-        def produce(message: Message) -> tuple[Message, str, str, str] | None:
+        def produce(message: Message) -> tuple[Message, str, str, str] | GenerationFailure | None:
             if stop.is_set():
                 return None
             try:
@@ -202,6 +207,8 @@ class CampaignService:
                     body,
                     request_id,
                 )
+            except GenerationFailure as exc:
+                return exc
             except ValidationError:
                 return None
 
@@ -214,6 +221,10 @@ class CampaignService:
                 if result is None:
                     summary.failed += 1
                     emit("Generation failed for a draft; it remains unapproved.")
+                    continue
+                if isinstance(result, GenerationFailure):
+                    summary.failed += 1
+                    emit(str(result))
                     continue
                 message, subject, body, request_id = result
                 try:
@@ -276,16 +287,18 @@ class CampaignService:
                 summary.skipped += 1
                 continue
             sender = self.store.sender(message.sender_id)
-            password = self.credentials.get(sender.id)
-            if not password:
-                raise ValidationError(
-                    "Sender credentials are missing. Re-enter them in sender settings."
-                )
             floor = float(getattr(self.transport, "minimum_interval", 0))
             delay = self.store.wait_seconds(sender.id, self.clock(), minimum_interval=floor)
             if delay and stop.wait(delay):
                 summary.cancelled = True
                 break
+            sender = self.store.sender(message.sender_id)
+            prepare = getattr(self.transport, "prepare", None)
+            credential = prepare(sender) if callable(prepare) else self.credentials.get(sender.id)
+            if not isinstance(credential, str) or not credential:
+                raise ValidationError(
+                    "Sender authorization is missing. Sign in under Sender accounts."
+                )
             attempt_id = self.store.claim(
                 message.id, self.clock(), minimum_interval=floor, run_id=run_id
             )
@@ -297,7 +310,7 @@ class CampaignService:
                 continue
             try:
                 result = self.transport.send(
-                    self.store.sender(message.sender_id), password, self.store.message(message.id)
+                    self.store.sender(message.sender_id), credential, self.store.message(message.id)
                 )
             except Exception:
                 self.store.finish(
@@ -317,7 +330,7 @@ class CampaignService:
                 result.outcome,
                 result.code,
                 self.clock(),
-                minimum_interval=floor,
+                minimum_interval=max(floor, result.retry_after),
             )
             if result.outcome == Outcome.ACCEPTED:
                 summary.accepted += 1
@@ -328,7 +341,10 @@ class CampaignService:
             else:
                 summary.failed += 1
             emit(f"Message outcome: {result.outcome} ({result.code}).")
-            if result.outcome == Outcome.UNCERTAIN or result.code == "authentication_failed":
+            if result.outcome == Outcome.UNCERTAIN or result.code in {
+                "authentication_failed",
+                "provider_rate_limited",
+            }:
                 break
             if stop.is_set():
                 summary.cancelled = True

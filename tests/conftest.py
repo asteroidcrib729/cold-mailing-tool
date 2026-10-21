@@ -23,7 +23,7 @@ class FakeMail:
     def preflight(self) -> None:
         return None
 
-    def send(self, sender: Sender, password: str, message: Message) -> SendResult:
+    def send(self, sender: Sender, credential: str, message: Message) -> SendResult:
         self.messages.append(message)
         return SendResult(self.outcome, self.code)
 

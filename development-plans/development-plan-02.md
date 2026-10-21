@@ -2,6 +2,12 @@
 
 Date: 2026-10-19 (Asia/Karachi).
 
+Scope override dated 2026-10-20: [Plan 03](development-plan-03.md) replaces the
+generic SMTP/company-account requirements below with explicit personal Google
+Gmail or Microsoft Outlook OAuth sign-in. Earlier app-password, SMTP-host, legacy
+credential-import, and organizational-account tasks are historical and no longer
+define supported production sending. Other unfinished Plan 02 obligations remain.
+
 Status: active implementation. The owner authorized autonomous implementation of
 this plan and the additional feature backlog on 2026-10-19. Requirements remain
 open for additions. [Execution 03](execution-03.md) records current implementation,
@@ -9,6 +15,22 @@ verification, remaining local work, and owner-dependent release gates;
 [Execution 02](execution-02.md) retains the preceding baseline. Unchecked tasks below remain
 open unless that execution record explicitly establishes their acceptance.
 No commit, push, or history rewrite is authorized in this implementation phase.
+
+Subsequent owner instructions authorized development commits/pushes and then
+historical-secret remediation. The current scope, verified isolated rewrite,
+credential-rotation confirmation, approved eight-branch publication and local cleanup,
+and remaining GitHub cache/support follow-up
+are tracked in [Historical Secret Remediation 01](security-remediation-01.md).
+The older phase restrictions above describe the implementation baseline.
+
+The owner subsequently authorized bounded live AI testing. The
+[Live Testing 01 record](live-testing-01.md) records successful model metadata
+checks and failed generation attempts, including the explicitly approved stable
+model trial. [Live Testing 02](live-testing-02.md) subsequently confirms four working
+Gemini 3.1 Flash-Lite requests and the bounded source desktop journey. Bulk model-aware
+RPM/TPM/daily quota admission, broader semantic evaluation, SMTP seed verification,
+and packaged live acceptance remain open; request-count budgets alone do not close
+the provider quota requirement.
 
 Plan 01 is complete as a closed foundation phase. Its unfinished obligations are
 transferred here without being marked implemented. See the

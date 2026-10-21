@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (
 from cold_mailer.application.campaigns import CampaignService, GenerationCandidate
 from cold_mailer.application.review import quality_hints, reading_preview
 from cold_mailer.bootstrap import Application
-from cold_mailer.domain.models import Message, Sender, Status, ValidationError, identifier
+from cold_mailer.domain.models import Message, Sender, Status, ValidationError
 from cold_mailer.infrastructure.ai import AIGenerator
 from cold_mailer.infrastructure.backup import encrypted_backup
 from cold_mailer.infrastructure.contacts import read_document
@@ -53,9 +53,9 @@ from cold_mailer.infrastructure.demo import DemoGenerator
 from cold_mailer.infrastructure.dns import domain_health
 from cold_mailer.infrastructure.doctor import diagnostics
 from cold_mailer.infrastructure.feedback import PreparedFeedback
-from cold_mailer.infrastructure.legacy import read_legacy_accounts
+from cold_mailer.infrastructure.oauth_accounts import OAuthAccounts
+from cold_mailer.infrastructure.oauth_mail import OAuthMailTransport
 from cold_mailer.infrastructure.organization import Organization
-from cold_mailer.infrastructure.smtp import SMTPTransport
 from cold_mailer.infrastructure.support import support_preview, write_support_bundle
 from cold_mailer.settings import VERSION, Settings
 from cold_mailer.ui.autosave import DraftSaver
@@ -137,9 +137,11 @@ class Window(QMainWindow):
         header.addWidget(self.mode_badge)
         self.live = QCheckBox("Live access")
         self.live.setToolTip(
-            "Allow AI, SMTP, and DNS only for operations you explicitly request. Sending still requires confirmation."
+            "Allow AI, account sign-in, email sending, and DNS only for operations you explicitly request. Sending still requires confirmation."
         )
-        self.live.setAccessibleName("Enable live AI, SMTP, and DNS access")
+        self.live.setAccessibleName(
+            "Enable live AI, account sign-in, email sending, and DNS access"
+        )
         self.live.setChecked(application.settings.network)
         self.live.toggled.connect(self.update_live_badge)
         header.addWidget(self.live)
@@ -502,42 +504,35 @@ class Window(QMainWindow):
         grid = QGridLayout()
         grid.setSpacing(16)
         account = Card(
-            "Account details", "Your password stays in your operating system's credential store."
+            "Personal email account", "Sign in through your browser and approve sending access."
         )
-        self.sender_fields = {
-            name: QLineEdit() for name in ("Email", "SMTP host", "Username", "Password")
-        }
-        placeholders = {
-            "Email": "you@company.com",
-            "SMTP host": "smtp.your-provider.com",
-            "Username": "Usually your email address",
-        }
-        for name, control in self.sender_fields.items():
-            control.setPlaceholderText(
-                placeholders.get(name, "Leave blank to keep the saved password")
-            )
-            account.content.addWidget(field(name, control))
-        self.sender_fields["Password"].setEchoMode(QLineEdit.EchoMode.Password)
+        self.sender_email = QLineEdit()
+        self.sender_email.setReadOnly(True)
+        self.sender_email.setPlaceholderText("Sign in to select your email account")
+        account.content.addWidget(field("Signed-in email", self.sender_email))
+        self.sender_status = label("Choose Google Gmail or Microsoft Outlook to connect.", "hint")
+        account.content.addWidget(self.sender_status)
+        self.google_sign_in = self.button(
+            "Sign in with Google",
+            self.sign_in_google,
+            account.content,
+            kind="primary",
+        )
+        self.microsoft_sign_in = self.button(
+            "Sign in with Microsoft",
+            self.sign_in_microsoft,
+            account.content,
+            kind="primary",
+        )
+        self.google_sign_in.setEnabled(not self.application.demo)
+        self.microsoft_sign_in.setEnabled(not self.application.demo)
         account_actions = QHBoxLayout()
-        self.button("Save sender", self.save_sender, account_actions, kind="primary", glyph="save")
-        self.button("New", self.new_sender, account_actions, glyph="plus")
+        self.button("Add another", self.new_sender, account_actions, glyph="plus")
+        self.button("Disconnect", self.disconnect_account, account_actions, kind="quiet")
         self.button("Delete", self.delete_sender, account_actions, kind="danger")
         account.content.addLayout(account_actions)
         controls = Card(
-            "Delivery controls", "Keep your sending pace deliberate and your connection secure."
-        )
-        connection = QGridLayout()
-        connection.setSpacing(14)
-        self.port = QSpinBox()
-        self.port.setRange(1, 65535)
-        self.port.setValue(587)
-        self.tls = self.combo()
-        self.tls.addItems(["starttls", "tls"])
-        connection.addWidget(field("Port", self.port), 0, 0)
-        connection.addWidget(field("Connection security", self.tls), 0, 1)
-        controls.content.addLayout(connection)
-        controls.content.addWidget(
-            label("STARTTLS usually uses port 587. Implicit TLS (tls) usually uses 465.", "hint")
+            "Sending controls", "Provider limits still apply to your connected personal account."
         )
         self.limit = QSpinBox()
         self.limit.setRange(1, 10000)
@@ -555,11 +550,17 @@ class Window(QMainWindow):
         )
         controls.content.addStretch()
         self.button(
-            "Import legacy accounts",
-            self.import_legacy,
+            "Save sending controls",
+            self.save_sender,
             controls.content,
-            kind="quiet",
-            glyph="import",
+            kind="primary",
+            glyph="save",
+        )
+        controls.content.addWidget(
+            label(
+                "Personal Gmail and Microsoft accounts only. Company, work and school accounts are not supported.",
+                "hint",
+            )
         )
         grid.addWidget(account, 0, 0)
         grid.addWidget(controls, 0, 1)
@@ -1003,7 +1004,7 @@ class Window(QMainWindow):
 
     def send(self) -> None:
         def prepare() -> None:
-            settings = None if self.application.demo else self.network_settings()
+            settings = None if self.application.demo else self.mail_settings()
             if self.dirty:
                 raise ValidationError("Save or discard current edits before sending.")
             campaign_id = self.campaign_id()
@@ -1019,7 +1020,7 @@ class Window(QMainWindow):
                     "Confirm demo rehearsal" if settings is None else "Confirm live campaign",
                     f"Simulate approved messages with NO transmission?\n{scope}\nCampaign totals: {counts}"
                     if settings is None
-                    else f"Submit only approved/eligible messages through SMTP?\n{scope}\nCampaign totals: {counts}",
+                    else f"Submit only approved/eligible messages through your signed-in Google or Microsoft account?\n{scope}\nCampaign totals: {counts}",
                 )
                 != QMessageBox.StandardButton.Yes
             ):
@@ -1028,7 +1029,11 @@ class Window(QMainWindow):
                 self.application.service
                 if settings is None
                 else CampaignService(
-                    self.store, self.application.credentials, SMTPTransport(settings)
+                    self.store,
+                    self.application.credentials,
+                    OAuthMailTransport(
+                        settings, OAuthAccounts(settings, self.store, self.application.credentials)
+                    ),
                 )
             )
             run_id = Organization(self.store).freeze(campaign_id, selected_ids)
@@ -1056,46 +1061,78 @@ class Window(QMainWindow):
 
     def select_sender(self) -> None:
         sender_id = self.senders.currentData()
-        self.sender_fields["Password"].clear()
         if not sender_id:
+            self.sender_email.clear()
+            self.sender_status.setText("Choose Google Gmail or Microsoft Outlook to connect.")
             return
         sender = self.store.sender(str(sender_id))
-        for name, value in {
-            "Email": sender.email,
-            "SMTP host": sender.host,
-            "Username": sender.username,
-        }.items():
-            self.sender_fields[name].setText(value)
-        self.port.setValue(sender.port)
-        self.tls.setCurrentText(sender.tls)
+        self.sender_email.setText(sender.email)
+        self.sender_status.setText(
+            OAuthAccounts(
+                self.application.settings, self.store, self.application.credentials
+            ).status(sender)
+        )
         self.limit.setValue(sender.daily_limit)
         self.interval.setValue(sender.interval)
 
     def new_sender(self) -> None:
         self.senders.setCurrentIndex(0)
-        for control in self.sender_fields.values():
-            control.clear()
+        self.select_sender()
+
+    def mail_settings(self) -> Settings:
+        if not self.live.isChecked() or self.application.demo:
+            raise ValidationError("Enable live mode explicitly to sign in or send email.")
+        return replace(self.application.settings, network=True)
+
+    def connect_account(self, provider: str) -> None:
+        def prepare() -> None:
+            settings = self.mail_settings()
+            sender_id = self.senders.currentData()
+            accounts = OAuthAccounts(settings, self.store, self.application.credentials)
+            self.start(
+                lambda stop, emit: accounts.connect(
+                    provider, stop, str(sender_id) if sender_id else None
+                )
+            )
+
+        self.guard(prepare)
+
+    @Slot()
+    def sign_in_google(self) -> None:
+        self.connect_account("google")
+
+    @Slot()
+    def sign_in_microsoft(self) -> None:
+        self.connect_account("microsoft")
+
+    def disconnect_account(self) -> None:
+        def disconnect() -> None:
+            sender_id = self.senders.currentData()
+            if not sender_id:
+                raise ValidationError("Select a connected account first.")
+            OAuthAccounts(
+                self.application.settings, self.store, self.application.credentials
+            ).disconnect(str(sender_id))
+            self.select_sender()
+            self.reload_messages()
+            self.state.setText(
+                "Account disconnected locally. Sign in again before sending; provider consent can also be removed in your account settings."
+            )
+
+        self.guard(disconnect)
 
     def save_sender(self) -> None:
         def save() -> None:
-            sender = Sender(
-                str(self.senders.currentData() or identifier()),
-                self.sender_fields["Email"].text().strip(),
-                self.sender_fields["SMTP host"].text().strip(),
-                self.port.value(),
-                self.sender_fields["Username"].text().strip(),
-                self.tls.currentText(),
-                self.limit.value(),
-                self.interval.value(),
-            )
-            sender.validate()
-            password = self.sender_fields["Password"].text()
-            if password:
-                self.application.credentials.set(sender.id, password)
-            elif not self.application.credentials.get(sender.id):
-                raise ValidationError("Enter a password for this account.")
+            sender_id = self.senders.currentData()
+            if not sender_id:
+                raise ValidationError("Sign in with Google or Microsoft to add a sender.")
+            sender = self.store.sender(str(sender_id))
+            if not sender.provider and not self.application.demo:
+                raise ValidationError(
+                    "Sign in to reconnect this legacy sender before changing its controls."
+                )
+            sender = replace(sender, daily_limit=self.limit.value(), interval=self.interval.value())
             self.store.save_sender(sender)
-            self.sender_fields["Password"].clear()
             self.refresh()
             self.senders.setCurrentIndex(self.senders.findData(sender.id))
 
@@ -1106,42 +1143,13 @@ class Window(QMainWindow):
             sender_id = self.senders.currentData()
             if sender_id:
                 self.store.delete_sender(str(sender_id))
+                OAuthAccounts(
+                    self.application.settings, self.store, self.application.credentials
+                ).secrets.delete(str(sender_id))
                 self.application.credentials.delete(str(sender_id))
                 self.refresh()
 
         self.guard(delete)
-
-    def import_legacy(self) -> None:
-        def perform() -> None:
-            database, _ = QFileDialog.getOpenFileName(
-                self, "Choose legacy config.db", "", "SQLite (*.db)"
-            )
-            if not database:
-                return
-            key, _ = QFileDialog.getOpenFileName(
-                self, "Choose existing secret.key", "", "Key (*.key)"
-            )
-            if not key:
-                return
-            accounts = read_legacy_accounts(Path(database), Path(key))
-            for account in accounts:
-                sender = Sender(
-                    identifier(),
-                    account.email,
-                    account.smtp_server,
-                    account.port,
-                    account.username,
-                    "tls" if account.port == 465 else "starttls",
-                )
-                sender.validate()
-                self.application.credentials.set(sender.id, account.password)
-                self.store.save_sender(sender)
-            self.refresh()
-            self.state.setText(
-                f"Imported {len(accounts)} sender(s); legacy files were not modified. Rotate exposed credentials."
-            )
-
-        self.guard(perform)
 
     def save_ai(self) -> None:
         def save() -> None:
@@ -1209,6 +1217,14 @@ class Window(QMainWindow):
 
     @Slot(object)
     def result(self, value: object) -> None:
+        if isinstance(value, Sender):
+            self.refresh()
+            self.senders.setCurrentIndex(self.senders.findData(value.id))
+            self.select_sender()
+            self.log.appendPlainText(
+                "Personal account connected. Review and approve each message before sending."
+            )
+            return
         if isinstance(value, HistoryExported):
             self.history_page.count.setText(
                 f"Exported {value.count} attempts. Treat this file as private."

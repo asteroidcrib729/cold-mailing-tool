@@ -5,7 +5,7 @@ import pytest
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
 from cold_mailer.bootstrap import Application
-from cold_mailer.domain.models import Status, ValidationError
+from cold_mailer.domain.models import Sender, Status, ValidationError
 from cold_mailer.settings import Settings
 from cold_mailer.ui import window as app_ui
 from cold_mailer.ui.imports import ContactImportDialog
@@ -35,17 +35,31 @@ def test_complete_workbench_journey(
         assert not window.api_key.text()
         assert app.store.preference("model") == "chosen-model"
 
-        window.sender_fields["Email"].setText("extra@example.com")
-        window.sender_fields["SMTP host"].setText("smtp.example.com")
-        window.sender_fields["Username"].setText("extra")
-        window.sender_fields["Password"].setText("synthetic-password")
-        window.save_sender()
+        def connect(self, provider, stop, sender_id=None):
+            sender = Sender(
+                "extra",
+                "extra@gmail.com",
+                "gmail.googleapis.com",
+                443,
+                "extra@gmail.com",
+                "tls",
+                provider="google",
+                subject="person",
+            )
+            self.store.save_sender(sender)
+            return sender
+
+        monkeypatch.setattr(app_ui.OAuthAccounts, "connect", connect)
+        window.live.setChecked(True)
+        window.connect_account("google")
+        qtbot.waitUntil(lambda: window.operation_thread is None, timeout=5000)
+        window.live.setChecked(False)
         assert len(app.store.senders()) == 2
         window.select_sender()
         window.delete_sender()
         assert len(app.store.senders()) == 1
         window.new_sender()
-        assert not window.sender_fields["Email"].text()
+        assert not window.sender_email.text()
 
         monkeypatch.setattr(QInputDialog, "getText", lambda *args: ("UI campaign", True))
         window.new_campaign()
@@ -81,7 +95,7 @@ def test_complete_workbench_journey(
         window.approve()
         window.dry_run()
         assert not rig.mail.messages
-        monkeypatch.setattr(app_ui, "SMTPTransport", MagicMock(return_value=rig.mail))
+        monkeypatch.setattr(app_ui, "OAuthMailTransport", MagicMock(return_value=rig.mail))
         window.send()
         qtbot.waitUntil(lambda: window.operation_thread is None, timeout=5000)
         assert app.store.message(message.id).status == Status.ACCEPTED

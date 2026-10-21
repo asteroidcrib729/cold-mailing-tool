@@ -8,6 +8,10 @@ CRITICAL = (
     "src/cold_mailer/application/campaigns.py",
     "src/cold_mailer/infrastructure/storage.py",
     "src/cold_mailer/infrastructure/smtp.py",
+    "src/cold_mailer/infrastructure/oauth_accounts.py",
+    "src/cold_mailer/infrastructure/oauth_browser.py",
+    "src/cold_mailer/infrastructure/oauth_mail.py",
+    "src/cold_mailer/infrastructure/oauth_secrets.py",
 )
 
 
