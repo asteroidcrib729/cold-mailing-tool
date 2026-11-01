@@ -7,6 +7,7 @@ try {
     $env:UV_CACHE_DIR = Join-Path $workspace '.uv-cache'
     & uv run --locked --group build pyinstaller --noconfirm --windowed --name ColdMailer --distpath dist/desktop --workpath build/desktop --specpath build --paths src --collect-data cold_mailer.ui --hidden-import keyring.backends.Windows --log-level WARN src/cold_mailer/ui/__main__.py
     if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed.' }
+    Copy-Item -LiteralPath LICENSE,NOTICE,THIRD_PARTY_NOTICES.md -Destination dist/desktop/ColdMailer/
     & uv run --locked python scripts/desktop_manifest.py
     if ($LASTEXITCODE -ne 0) { throw 'Desktop manifest generation failed.' }
 } finally {

@@ -68,7 +68,9 @@ connection never automatically approves content or sends a message.
 - [x] Stop the operation after authorization failure, a provider throttle, or an
   ambiguous POST result. Persist a provider rate-limit delay before explicit retry.
 - [x] Add offline grant, identity, callback, vault, refresh, transport, and GUI tests.
-- [ ] Configure and verify publisher-owned Google and Microsoft OAuth registrations.
+- [x] Configure the owner's personal Google registration and verify sign-in with a
+  read-only identity check (2026-10-20; see [maintenance evidence](maintenance-01.md)).
+- [ ] Configure and verify the publisher-owned personal Microsoft OAuth registration.
 - [ ] Test real Google and Microsoft browser consent, cancellation, refresh after
   expiry, revocation, disconnect/reconnect, and wrong-account rejection.
 - [ ] Authorize one exact reviewed message to an owned recipient for each provider;

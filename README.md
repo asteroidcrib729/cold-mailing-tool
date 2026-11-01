@@ -1,5 +1,9 @@
 # Cold Mailer
 
+I publish my original code and documentation under the [Apache License 2.0](LICENSE).
+See [NOTICE](NOTICE) for author/source attribution and
+[third-party licensing](THIRD_PARTY_NOTICES.md) for dependency obligations.
+
 I am rebuilding this project as a local Windows desktop campaign workbench using
 Python 3.14, PySide6 Widgets, SQLite, OS credential storage, and `uv`. Application
 code lives in the installable `src/cold_mailer/` package. My
@@ -14,6 +18,8 @@ The account scope is now governed by [Plan 03](development-plans/development-pla
 users must explicitly sign in with a personal Gmail or Microsoft Outlook account.
 See the [account setup guide](development-plans/personal-account-setup.md) and
 [Execution 04](development-plans/execution-04.md) for implementation and live-verification limits.
+The [maintenance record](development-plans/maintenance-01.md) tracks subsequent
+account verification, hosted installer evidence, and the licensing update.
 
 ## Repository structure
 
@@ -88,7 +94,7 @@ are eligible only after the retry delay and an explicit later run. There is no
 unattended retry scheduler or background auto-send.
 
 This is an early development build. Hosted development, security, and CodeQL
-checks pass. Real-provider seed tests, signing, hosted Windows installer acceptance,
+checks have passed at recorded checkpoints. Real-provider seed tests, signing, signed MSIX installation,
 clean-machine upgrades, remaining schema/fault acceptance, and production acceptance
 remain open. Credentials are owner-confirmed revoked/rotated and reachable Git
 history has been sanitized. The [remediation record](development-plans/security-remediation-01.md)
@@ -97,9 +103,16 @@ The owner has submitted the GitHub Support ticket. My
 [first live-testing record](development-plans/live-testing-01.md) documents the initial
 HTTP 503/504 failures. [Live Testing 02](development-plans/live-testing-02.md) confirms
 four successful `models/gemini-3.1-flash-lite` requests, including desktop editing,
-autosave, candidate rejection, and restart checks. That is the tested recommendation
-for the current project's screenshot limits. Bulk AI quota governance, real personal-account
-OAuth consent, and mailbox seed verification remain open; no live email was sent.
+autosave, candidate rejection, and restart checks. Those 2026-10-20 results describe
+that test project's model and quotas; recheck availability and limits for a new live run.
+Bulk AI quota governance, real personal-account
+Microsoft OAuth consent, and mailbox seed verification remain open; no live email was sent.
+Personal Google sign-in and a read-only Google identity request were verified on
+2026-10-20, including a stored sending grant. This does not establish live send
+acceptance or delivery, and it is not a current check of that grant's validity.
+On 2026-10-21, hosted EXE/MSIX preview builds, downloaded artifact checksums, and
+EXE install/reinstall/uninstall with profile preservation passed. The unsigned
+MSIX was inspected, not installed. The maintenance record links that evidence.
 
 ## Development setup
 
@@ -309,11 +322,33 @@ uv --cache-dir .uv-cache run --locked python scripts/check_artifacts.py
 The wheel includes only the `cold_mailer` package from `src/`; source archives exclude credentials,
 databases, local reports, and caches. Windows directory builds use the pinned
 PyInstaller dependency. Unsigned development artifacts are not production releases;
-signing, installed-app acceptance, upgrade/rollback, licensing review, and hosted
-artifact verification remain gates in the plan.
+signing, clean-machine acceptance, supported-version upgrade/rollback, and the
+complete third-party license inventory remain gates in the plan. Hosted preview
+artifact verification is recorded separately from production certification.
 
 Build an unsigned directory preview with `scripts/build_desktop.ps1`. The executable
 is `dist/desktop/ColdMailer/ColdMailer.exe`; keep its `_internal` folder beside it.
 `dist/desktop/development-manifest.json` records source hashes and clearly marks
 the uncommitted/unsigned state. A hidden native Windows startup check can use
 `--smoke-test --data-dir SOME-ISOLATED-PROFILE`; this never enables providers.
+
+## License and attribution
+
+Copyright 2026 Faraz Hussain. My original source code and documentation are
+licensed under [Apache-2.0](LICENSE), with attribution in [NOTICE](NOTICE).
+The original repository is [asteroidcrib729/cold-mailing-tool](https://github.com/asteroidcrib729/cold-mailing-tool).
+
+Apache-2.0 permits use, modification, and redistribution, including commercial
+use, subject to its terms. Redistributors must include the license, retain
+applicable notices and readable NOTICE attribution, and mark modified files.
+The license does not require a visible in-app credit banner or grant trademark
+rights. See the [license text](https://www.apache.org/licenses/LICENSE-2.0) for
+the complete conditions and warranty disclaimer.
+
+Dependencies and bundled components retain their own terms. In particular,
+PySide6/Qt redistribution requires a separate review described in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Wheel/source builds include the
+project license and NOTICE; desktop builds copy those files and the third-party
+guidance beside the executable. These checks do not certify all dependency
+redistribution requirements. Contributions intentionally submitted for inclusion
+are covered by Apache-2.0's contribution terms unless explicitly stated otherwise.

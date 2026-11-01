@@ -3,8 +3,11 @@
 Date: 2026-10-20 (Asia/Karachi).
 
 Only personal Gmail and personal Microsoft Outlook accounts are supported.
-The owner has not yet configured the OAuth registrations described below in this
-checkout. The existing Gemini API key cannot authorize mailbox access.
+Personal Google registration and sign-in were verified locally on 2026-10-20,
+including a read-only identity request and a stored sending grant. This historical
+result does not establish current token validity, mailbox delivery, or Microsoft
+registration. The existing Gemini API key cannot authorize mailbox access.
+See [maintenance evidence](maintenance-01.md) for subsequent verification limits.
 
 ## Google publisher setup
 

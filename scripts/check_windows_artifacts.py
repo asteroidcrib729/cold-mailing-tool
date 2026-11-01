@@ -20,6 +20,9 @@ def verify(root: Path) -> dict[str, object]:
         "version"
     ]
     payload = root / "dist/desktop/ColdMailer"
+    for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"):
+        if (payload / name).read_bytes() != (root / name).read_bytes():
+            raise ValueError(f"Desktop licensing file is missing or outdated: {name}")
     installers = root / "dist/installers"
     msix = installers / f"ColdMailer-{version}-x64-unsigned.msix"
     manifest = json.loads((installers / "development-manifest.json").read_text(encoding="utf-8"))
@@ -52,6 +55,9 @@ def verify(root: Path) -> dict[str, object]:
             raise ValueError("MSIX identity/version mismatch")
         for name in (
             "ColdMailer.exe",
+            "LICENSE",
+            "NOTICE",
+            "THIRD_PARTY_NOTICES.md",
             "_internal/sqlite3.dll",
             *[
                 "_internal/cold_mailer/ui/assets/" + item.name

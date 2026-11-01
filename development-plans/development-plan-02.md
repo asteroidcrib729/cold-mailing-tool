@@ -656,7 +656,6 @@ Until these decisions are finalized, keep candidate additions separate and leave
 affected acceptance gates open. This plan can grow without changing the closed
 status or historical evidence of Plan 01.
 
-
 ## Transferred execution gates
 
 The following open execution gates are transferred from the historical execution

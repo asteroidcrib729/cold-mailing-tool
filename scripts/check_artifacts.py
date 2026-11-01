@@ -2,6 +2,7 @@
 
 import tarfile
 import zipfile
+from email.parser import BytesParser
 from pathlib import Path
 
 
@@ -21,6 +22,17 @@ def main() -> None:
     wheel = next((root / "dist").glob("*.whl"))
     with zipfile.ZipFile(wheel) as archive:
         files = archive.namelist()
+        metadata_name = next(name for name in files if name.endswith(".dist-info/METADATA"))
+        metadata = BytesParser().parsebytes(archive.read(metadata_name))
+        require(
+            metadata["License-Expression"] == "Apache-2.0", "Wheel license metadata is incorrect."
+        )
+        for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"):
+            license_path = metadata_name.removesuffix("METADATA") + "licenses/" + name
+            require(
+                archive.read(license_path) == (root / name).read_bytes(),
+                f"Wheel licensing file is missing or outdated: {name}",
+            )
         for name in expected:
             require(
                 archive.read(name) == (root / "src" / name).read_bytes(),
@@ -41,6 +53,17 @@ def main() -> None:
             for member in archive.getmembers()
             if member.isfile()
         }
+        for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"):
+            member = source_files.get(name)
+            require(member is not None, f"Source archive omits licensing file: {name}")
+            content = archive.extractfile(member) if member is not None else None
+            require(content is not None, f"Cannot read source licensing file: {name}")
+            if content is not None:
+                with content:
+                    require(
+                        content.read() == (root / name).read_bytes(),
+                        f"Source licensing file differs: {name}",
+                    )
         for name in expected:
             member = source_files.get("src/" + name)
             require(member is not None, f"Source archive omits package file: {name}")

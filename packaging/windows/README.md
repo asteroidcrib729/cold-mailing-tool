@@ -54,8 +54,25 @@ remain separate gates. MSIX may virtualize application data; back up before
 uninstall and verify actual retention on a clean test machine.
 
 Use `dist/installers/SHA256SUMS.txt` to verify downloaded artifacts. A successful
-local build does not establish a successful hosted workflow. Repository CI runs
-cannot be dispatched until the uncommitted changes are reviewed and pushed.
+local build does not establish a successful hosted workflow. The
+[maintenance record](../../development-plans/maintenance-01.md) links the verified
+2026-10-21 hosted preview and distinguishes package checks from MSIX installation.
+Dispatch a fresh run after pushing a build change; old artifacts describe their
+recorded source commit, not later changes.
+
+## License files in preview packages
+
+The desktop build copies the project's [LICENSE](../../LICENSE),
+[NOTICE](../../NOTICE), and [third-party guidance](../../THIRD_PARTY_NOTICES.md)
+beside `ColdMailer.exe`. Both installers inherit those files from that payload;
+the EXE wizard displays the Apache license. The Windows artifact verifier checks
+that the payload and MSIX contain the current licensing files. Source/wheel
+checks also require the Apache license metadata and original license/NOTICE text.
+
+These are the application's notices. Before public redistribution, complete a
+version-specific inventory of bundled dependency licenses, required source
+materials/offers, Qt relinking and installation information, and distribution
+channel terms. This remains a release gate even when preview CI passes.
 
 References: [Inno privilege settings](https://jrsoftware.org/ishelp/topic_setup_privilegesrequired.htm),
 [Inno verification](https://jrsoftware.org/isdl-verify.php),

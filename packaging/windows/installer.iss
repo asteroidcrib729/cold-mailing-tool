@@ -12,6 +12,7 @@ AppId={{D66AB702-6840-4684-8B67-77DD1BE89D04}
 AppName=Cold Mailer Preview
 AppVersion={#AppVersion}
 AppPublisher=Cold Mailer Project
+LicenseFile=..\..\LICENSE
 DefaultDirName={localappdata}\Programs\ColdMailerPreview
 DefaultGroupName=Cold Mailer Preview
 PrivilegesRequired=lowest
